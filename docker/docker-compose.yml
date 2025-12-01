@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0 # 使用最新ES 8版本
+    container_name: faber-elasticsearch
+    environment:
+      - xpack.security.enabled=true # 启用安全功能，ES 8 默认启用
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD} # root 用户密码
+      - discovery.type=single-node # 单节点部署
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m # 内存设置，根据实际情况调整
+    volumes:
+      - ${ROOT}\data\elasticsearch:/usr/share/elasticsearch/data
+      - ${ROOT}\config\elasticsearch\elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ${ROOT}\plugins\elasticsearch:/usr/share/elasticsearch/plugins
+    ports:
+      - "9200:9200" # REST API 端口
+      - "9300:9300" # 节点间通信端口
+    restart: always
+    networks:
+      - my-app-net
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.16.0 # 与ES版本匹配的Kibana
+    container_name: faber-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://faber-elasticsearch:9200 # 连接到 Elasticsearch
+      - ELASTICSEARCH_USERNAME=kibana-system
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
+      - KIBANA_SYSTEM_PASSWORD=${KIBANA_SYSTEM_PASSWORD} # Kibana系统用户密码
+    ports:
+      - "5601:5601" # Kibana UI 端口
+    depends_on:
+      - elasticsearch
+    restart: always
+    networks:
+      - my-app-net
+
+  redis:
+    image: redis:7.2.4-alpine # 使用 Redis 最新稳定版，alpine 版本更轻量
+    container_name: faber-redis
+    command: redis-server --appendonly yes # 开启 AOF 持久化
+    volumes:
+      - ${ROOT}\data\redis:/data # 数据持久化
+    ports:
+      - "6379:6379" # Redis 默认端口
+    restart: always
+    networks:
+      - my-app-net
+  postgres:
+    image: postgres:18 # 使用 18 版本 alpine 镜像，体积小
+    container_name: faber-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres} # 数据库用户名
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}   # 数据库密码
+      - POSTGRES_DB=${POSTGRES_DB}      # 默认创建的数据库名
+      - TZ=Asia/Shanghai                          # 设置时区
+      - Locale=zh_CN.UTF-8
+    volumes:
+      - ${ROOT}\data\postgres:/var/lib/postgresql # 数据持久化
+    ports:
+      - "15432:5432" # 映射端口
+    networks:
+      - my-app-net
+    restart: always
+networks:
+  my-app-net:
+    driver: bridge
