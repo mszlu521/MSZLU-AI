@@ -30,7 +30,7 @@ email:
   host: "smtp.163.com"
   port: 25
   username: "mszlu_ai@163.com"
-  password: "XMtk2PKrNVs4LzAG"
+  password: ""
   from: "mszlu_ai@163.com"
   baseUrl: "http://localhost:8888"
 jwt:
