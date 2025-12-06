@@ -20,5 +20,7 @@ func Init(s *server.Server, conf *config.Config) {
 		&router.Event{},
 		&router.AuthRouter{},
 		&router.SubscriptionRouter{},
+		&router.AgentRouter{},
+		&router.LLMRouter{},
 	)
 }

@@ -15,3 +15,7 @@ var (
 	ErrCodeInvalid      = errs.NewError(10010, "验证码错误")
 	ErrEmailNotMatch    = errs.NewError(10011, "邮箱不匹配")
 )
+var (
+	AgentNotFound             = errs.NewError(20001, "Agent不存在")
+	ErrProviderConfigNotFound = errs.NewError(20002, "ProviderConfig不存在")
+)
