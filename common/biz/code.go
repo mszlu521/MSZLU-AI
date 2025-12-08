@@ -19,3 +19,8 @@ var (
 	AgentNotFound             = errs.NewError(20001, "Agent不存在")
 	ErrProviderConfigNotFound = errs.NewError(20002, "ProviderConfig不存在")
 )
+
+var (
+	ErrToolNameExisted = errs.NewError(30001, "工具名称已存在")
+	ErrToolNotExisted  = errs.NewError(30002, "工具不存在")
+)

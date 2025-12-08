@@ -8,6 +8,15 @@ server:
   writeTimeout: 10s # 写入超时时间（秒）
   cors:
     -  "*"
+auth:
+  isAuth: true
+  ignores:
+    - "/api/v1/auth/**"
+  needLogins:
+    - "/api/v1/agents/**"
+    - "/api/v1/tools/**"
+    - "/api/v1/provider-configs/**"
+    - "/api/v1/llms/**"
 log:
   level: "info"
   format: "pretty" # 日志格式: json, pretty, text 生产环境请选择json

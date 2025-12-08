@@ -55,6 +55,8 @@ type Agent struct {
 	InvocationCount uint64 `json:"invocationCount" gorm:"column:invocation_count;type:bigint;not null;default:0"`
 	// PublishedAt 发布时间戳
 	PublishedAt *time.Time `json:"publishedAt" gorm:"column:published_at;type:timestamptz"`
+
+	Tools []*Tool `json:"tools" gorm:"many2many:agent_tools"`
 }
 
 // TableName 返回表名
@@ -149,4 +151,23 @@ func DefaultAgent(userId uuid.UUID, name string, description string, status Agen
 		Visibility:         Private,
 		InvocationCount:    0,
 	}
+}
+
+var (
+	Enabled  = "enabled"
+	Disabled = "disabled"
+)
+
+// AgentTool 定义了智能体与工具的多对多关联
+type AgentTool struct {
+	// 复合主键：AgentID + ToolID
+	AgentID   uuid.UUID `json:"agentId" gorm:"type:uuid;primaryKey"`
+	ToolID    uuid.UUID `json:"toolId" gorm:"type:uuid;primaryKey;index"`
+	Status    string    `json:"status" gorm:"size:50;default:'active'"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// TableName 返回表名
+func (AgentTool) TableName() string {
+	return "agent_tools"
 }

@@ -5,8 +5,12 @@ import (
 	"common/biz"
 	"context"
 	"core/ai"
+	"core/ai/tools"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"model"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/ollama"
@@ -16,6 +20,8 @@ import (
 	"github.com/cloudwego/eino/adk/prebuilt/supervisor"
 	aiModel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/prompt"
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/eino-contrib/ollama/api"
 	"github.com/google/uuid"
@@ -242,6 +248,9 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 		logs.Errorf("构建chatmodel失败: %v", err)
 		return nil, err
 	}
+	var allTools []tool.BaseTool
+	//这里需要把关联的工具添加进去
+	allTools = append(allTools, s.buildTools(agent)...)
 	modelAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Model:       chatModel,
 		Name:        agent.Name,
@@ -253,7 +262,7 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 			messages, err2 := template.Format(ctx, map[string]any{
 				"role":       agent.SystemPrompt,
 				"ragContext": "",
-				"toolsInfo":  "",
+				"toolsInfo":  s.formatToolsInfo(allTools),
 				"agentsInfo": "",
 			})
 			if err2 != nil {
@@ -262,6 +271,11 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 			}
 			messages = append(messages, input.Messages...)
 			return messages, nil
+		},
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools: allTools,
+			},
 		},
 	})
 	if err != nil {
@@ -343,6 +357,96 @@ func (s *service) sendData(ctx context.Context, dataChan chan string, data strin
 	case <-ctx.Done():
 		logs.Warnf("sendData 发送取消 context Done")
 	}
+}
+
+func (s *service) updateAgentTool(ctx context.Context, userID uuid.UUID, agentId uuid.UUID, req UpdateAgentToolReq) (any, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	//先检查agent是否存在
+	agent, err := s.repo.getAgent(ctx, userID, agentId)
+	if err != nil {
+		return nil, errs.DBError
+	}
+	if agent == nil {
+		return nil, biz.AgentNotFound
+	}
+	if len(req.Tools) <= 0 {
+		return nil, biz.ErrToolNotExisted
+	}
+	//先删除agent现有关联的工具
+	err = s.repo.deleteAgentTools(ctx, agentId)
+	if err != nil {
+		return nil, errs.DBError
+	}
+	//创建新的关联记录
+	var agentTools []*model.AgentTool
+	var toolIds []uuid.UUID
+	for _, v := range req.Tools {
+		toolIds = append(toolIds, v.ID)
+	}
+	//获取到工具的ID，去工具表查询出对应的工具信息
+	toolsList, err := s.getToolsByIds(toolIds)
+	for _, t := range toolsList {
+		agentTools = append(agentTools, &model.AgentTool{
+			AgentID:   agentId,
+			ToolID:    t.ID,
+			Status:    model.Enabled,
+			CreatedAt: time.Now(),
+		})
+	}
+	//批量插入
+	err = s.repo.createAgentTools(ctx, agentTools)
+	if err != nil {
+		logs.Errorf("批量插入agent_tools失败: %v", err)
+		return nil, errs.DBError
+	}
+	return agentTools, nil
+}
+
+func (s *service) getToolsByIds(ids []uuid.UUID) ([]*model.Tool, error) {
+	//这里我们一会去实现event 获取工具信息
+	trigger, err := event.Trigger("getToolsByIds", &shared.GetToolsByIdsRequest{
+		Ids: ids,
+	})
+	return trigger.([]*model.Tool), err
+}
+
+func (s *service) buildTools(agent *model.Agent) []tool.BaseTool {
+	var agentTools []tool.BaseTool
+	for _, v := range agent.Tools {
+		//这里面工具的类型有system和mcp两种，我们这里先处理system
+		switch v.ToolType {
+		case model.SystemToolType:
+			systemTool := s.loadSystemTool(v.Name)
+			if systemTool == nil {
+				logs.Warnf("加载系统工具时，找不到工具: %v", v.Name)
+				continue
+			}
+			agentTools = append(agentTools, systemTool)
+		default:
+			logs.Warnf("未知的工具类型: %v", v.ToolType)
+
+		}
+	}
+	return agentTools
+}
+
+func (s *service) loadSystemTool(name string) tool.BaseTool {
+	return tools.FindTool(name)
+}
+
+func (s *service) formatToolsInfo(allTools []tool.BaseTool) string {
+	var builder strings.Builder
+	builder.WriteString("【可用工具列表】\n")
+	for _, t := range allTools {
+		info, _ := t.Info(context.Background())
+		builder.WriteString(fmt.Sprintf("- name: `%s` \n", info.Name))
+		builder.WriteString(fmt.Sprintf("  description: `%s` \n", info.Desc))
+		//参数要转成json字符串
+		marshal, _ := json.Marshal(info.ParamsOneOf)
+		builder.WriteString(fmt.Sprintf("  params: `%s` \n", string(marshal)))
+	}
+	return builder.String()
 }
 
 func newService() *service {

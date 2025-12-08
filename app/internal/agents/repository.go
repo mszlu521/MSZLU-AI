@@ -12,4 +12,6 @@ type repository interface {
 	listAgents(ctx context.Context, userID uuid.UUID, filter AgentFilter) ([]*model.Agent, int64, error)
 	getAgent(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*model.Agent, error)
 	updateAgent(ctx context.Context, agent *model.Agent) error
+	deleteAgentTools(ctx context.Context, agentId uuid.UUID) error
+	createAgentTools(ctx context.Context, tools []*model.AgentTool) error
 }

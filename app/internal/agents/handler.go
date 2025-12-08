@@ -174,6 +174,27 @@ func (h *Handler) AgentMessage(c *gin.Context) {
 
 }
 
+func (h *Handler) UpdateAgentTool(c *gin.Context) {
+	var id uuid.UUID
+	if err := req.Path(c, "id", &id); err != nil {
+		return
+	}
+	var updateReq UpdateAgentToolReq
+	if err := req.JsonParam(c, &updateReq); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.updateAgentTool(c.Request.Context(), userID, id, updateReq)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

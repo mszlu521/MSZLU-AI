@@ -13,13 +13,21 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) deleteAgentTools(ctx context.Context, agentId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ?", agentId).Delete(&model.AgentTool{}).Error
+}
+
+func (m *models) createAgentTools(ctx context.Context, tools []*model.AgentTool) error {
+	return m.db.WithContext(ctx).CreateInBatches(tools, len(tools)).Error
+}
+
 func (m *models) updateAgent(ctx context.Context, agent *model.Agent) error {
 	return m.db.WithContext(ctx).Updates(agent).Error
 }
 
 func (m *models) getAgent(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*model.Agent, error) {
 	var agent model.Agent
-	err := m.db.WithContext(ctx).Where("id = ? and creator_id = ? ", id, userID).First(&agent).Error
+	err := m.db.WithContext(ctx).Preload("Tools").Where("id = ? and creator_id = ? ", id, userID).First(&agent).Error
 	if gorms.IsRecordNotFoundError(err) {
 		return nil, nil
 	}
