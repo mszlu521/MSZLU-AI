@@ -10,9 +10,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/mszlu521/thunder/ai/einos"
 )
-
-var ApiKey = ""
 
 // WeatherTool 天气查询工具 使用高德天气API
 type WeatherTool struct {
@@ -23,7 +22,7 @@ type WeatherConfig struct {
 	ApiKey string
 }
 
-func NewWeatherTool(c *WeatherConfig) *WeatherTool {
+func NewWeatherTool(c *WeatherConfig) einos.InvokeParamTool {
 	if c == nil {
 		panic("WeatherConfig is nil")
 	}

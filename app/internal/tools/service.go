@@ -3,12 +3,14 @@ package tools
 import (
 	"common/biz"
 	"context"
+	"core/ai/mcps"
 	"core/ai/tools"
 	"encoding/json"
 	"model"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mszlu521/thunder/ai/einos"
 	"github.com/mszlu521/thunder/database"
 	"github.com/mszlu521/thunder/errs"
 	"github.com/mszlu521/thunder/logs"
@@ -167,6 +169,48 @@ func (s *service) testTool(ctx context.Context, userId uuid.UUID, id uuid.UUID, 
 		Success: true,
 		Data:    result,
 	}, nil
+}
+
+func (s *service) getMcpTools(ctx context.Context, userId uuid.UUID, toolId uuid.UUID) ([]*model.Tool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	//获取mcp
+	tool, err := s.repo.getTool(ctx, userId, toolId)
+	if err != nil {
+		logs.Errorf("get tool error: %v", err)
+		return nil, errs.DBError
+	}
+	config := tool.McpConfig
+	if config == nil {
+		return nil, biz.ErrMcpConfigNotExisted
+	}
+	//获取mcp的tool列表，这里我们需要用到mcp-go这个库
+	mcpConfig := einos.McpConfig{
+		BaseUrl: config.Url,
+		Token:   config.CredentialType,
+		Name:    "mszlu-AI",
+		Version: "1.0.0",
+	}
+	mcpTools, err := mcps.GetMCPTool(ctx, &mcpConfig)
+	if err != nil {
+		logs.Errorf("get mcp tool error: %v", err)
+		return nil, biz.ErrGetMcpTools
+	}
+	//转换为model.Tool
+	var toolList []*model.Tool
+	for _, mcpTool := range mcpTools {
+		toolList = append(toolList, &model.Tool{
+			BaseModel: model.BaseModel{
+				ID: uuid.New(),
+			},
+			Name:             mcpTool.Name,
+			Description:      mcpTool.Description,
+			ToolType:         model.McpToolType,
+			CreatorID:        userId,
+			ParametersSchema: einos.ConvertSchema(mcpTool.InputSchema),
+		})
+	}
+	return toolList, nil
 }
 
 func newService() *service {

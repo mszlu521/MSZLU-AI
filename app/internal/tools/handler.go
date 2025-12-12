@@ -105,6 +105,23 @@ func (h *Handler) TestTool(c *gin.Context) {
 	res.Success(c, resp)
 }
 
+func (h *Handler) GetMcpTools(c *gin.Context) {
+	var mcpId uuid.UUID
+	if err := req.Path(c, "mcpId", &mcpId); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	tools, err := h.service.getMcpTools(c.Request.Context(), userID, mcpId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, tools)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

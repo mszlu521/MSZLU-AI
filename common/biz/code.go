@@ -21,6 +21,8 @@ var (
 )
 
 var (
-	ErrToolNameExisted = errs.NewError(30001, "工具名称已存在")
-	ErrToolNotExisted  = errs.NewError(30002, "工具不存在")
+	ErrToolNameExisted     = errs.NewError(30001, "工具名称已存在")
+	ErrToolNotExisted      = errs.NewError(30002, "工具不存在")
+	ErrMcpConfigNotExisted = errs.NewError(30003, "McpConfig不存在")
+	ErrGetMcpTools         = errs.NewError(30004, "获取McpTools失败")
 )

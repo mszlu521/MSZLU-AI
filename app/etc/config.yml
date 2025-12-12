@@ -33,8 +33,7 @@ db:
     maxOpenConns: 100
     pingTimeout: 5s
   redis:
-    host: "127.0.0.1"
-    port: 6379
+    addr: "127.0.0.1:6379"
 email:
   host: "smtp.163.com"
   port: 25

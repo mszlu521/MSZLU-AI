@@ -18,5 +18,6 @@ func (t *ToolRouter) Register(r *gin.Engine) {
 		toolsGroup.PUT("/:id", toolsHandler.UpdateTool)
 		toolsGroup.DELETE("/:id", toolsHandler.DeleteTool)
 		toolsGroup.POST("/:id/test", toolsHandler.TestTool)
+		toolsGroup.GET("/mcp/:mcpId/tools", toolsHandler.GetMcpTools)
 	}
 }

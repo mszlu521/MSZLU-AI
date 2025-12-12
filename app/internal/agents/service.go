@@ -5,6 +5,7 @@ import (
 	"common/biz"
 	"context"
 	"core/ai"
+	"core/ai/mcps"
 	"core/ai/tools"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/eino-contrib/ollama/api"
 	"github.com/google/uuid"
+	"github.com/mszlu521/thunder/ai/einos"
 	"github.com/mszlu521/thunder/database"
 	"github.com/mszlu521/thunder/errs"
 	"github.com/mszlu521/thunder/event"
@@ -423,6 +425,20 @@ func (s *service) buildTools(agent *model.Agent) []tool.BaseTool {
 				continue
 			}
 			agentTools = append(agentTools, systemTool)
+		case model.McpToolType:
+			//获取到mcp的所有tools，并且需要转换为eino的tool
+			mcpConfig := einos.McpConfig{
+				BaseUrl: v.McpConfig.Url,
+				Token:   v.McpConfig.CredentialType,
+				Name:    "mszlu-AI",
+				Version: "1.0.0",
+			}
+			baseTools, err := mcps.GetEinoBaseTools(context.Background(), &mcpConfig)
+			if err != nil {
+				logs.Errorf("获取mcp tools失败: %v", err)
+				continue
+			}
+			agentTools = append(agentTools, baseTools...)
 		default:
 			logs.Warnf("未知的工具类型: %v", v.ToolType)
 
