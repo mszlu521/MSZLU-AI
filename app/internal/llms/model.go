@@ -13,6 +13,29 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) getByModelName(ctx context.Context, userId uuid.UUID, modelName string, modelType model.LLMType) (*model.LLM, error) {
+	var llm model.LLM
+	err := m.db.WithContext(ctx).Preload("ProviderConfig").
+		Where("user_id = ?", userId).
+		Where("model_name = ?", modelName).
+		Where("model_type = ?", modelType).
+		First(&llm).Error
+	if gorms.IsRecordNotFoundError(err) {
+		return nil, nil
+	}
+	return &llm, err
+}
+
+func (m *models) listLLMAll(ctx context.Context, userID uuid.UUID, filter LLMFilter) ([]*model.LLM, error) {
+	var llms []*model.LLM
+	query := m.db.WithContext(ctx).Model(&model.LLM{})
+	query = query.Where("user_id = ?", userID)
+	if filter.ModelType != "" {
+		query = query.Where("model_type = ?", filter.ModelType)
+	}
+	return llms, query.Preload("ProviderConfig").Find(&llms).Error
+}
+
 func (m *models) getProviderConfig(ctx context.Context, provider string) (*model.ProviderConfig, error) {
 	var pc model.ProviderConfig
 	err := m.db.WithContext(ctx).Where("provider = ? ", provider).First(&pc).Error

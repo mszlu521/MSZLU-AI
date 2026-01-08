@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/cloudwego/eino-ext/components/embedding/dashscope"
+	"github.com/cloudwego/eino-ext/components/embedding/ollama"
+	"github.com/cloudwego/eino-ext/components/embedding/openai"
 	"github.com/google/uuid"
+	"github.com/mszlu521/thunder/ai/einos"
 )
 
 var (
@@ -67,6 +71,44 @@ type LLM struct {
 // TableName 返回表名
 func (*LLM) TableName() string {
 	return "llms"
+}
+
+func (l *LLM) ToEmbeddingConfig() *einos.EmbeddingModelConfig {
+	//这个是不同的厂商配置
+	var config *einos.EmbeddingModelConfig
+	switch l.ProviderConfig.Provider {
+	case einos.EmbeddingOllama:
+		config = &einos.EmbeddingModelConfig{
+			OllamaConfig: &ollama.EmbeddingConfig{
+				Model:   l.ModelName,
+				BaseURL: l.ProviderConfig.APIBase,
+			},
+		}
+	case einos.EmbeddingOpenai:
+		config = &einos.EmbeddingModelConfig{
+			OpenaiConfig: &openai.EmbeddingConfig{
+				Model:   l.ModelName,
+				BaseURL: l.ProviderConfig.APIBase,
+				APIKey:  l.ProviderConfig.APIKey,
+			},
+		}
+	case einos.EmbeddingDashscope:
+		config = &einos.EmbeddingModelConfig{
+			DashscopeConfig: &dashscope.EmbeddingConfig{
+				Model:  l.ModelName,
+				APIKey: l.ProviderConfig.APIKey,
+			},
+		}
+	default:
+		config = &einos.EmbeddingModelConfig{
+			OpenaiConfig: &openai.EmbeddingConfig{
+				Model:   l.ModelName,
+				BaseURL: l.ProviderConfig.APIBase,
+				APIKey:  l.ProviderConfig.APIKey,
+			},
+		}
+	}
+	return config
 }
 
 // LLMConfig 大模型的关键配置

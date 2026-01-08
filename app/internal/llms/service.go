@@ -93,6 +93,20 @@ func (s *service) listLLMs(ctx context.Context, userID uuid.UUID, req ListLLMsRe
 	}, nil
 }
 
+func (s *service) listLLMAll(ctx context.Context, userID uuid.UUID, req ListLLMsReq) ([]*model.LLM, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	filter := LLMFilter{
+		ModelType: req.ModelType,
+	}
+	list, err := s.repo.listLLMAll(ctx, userID, filter)
+	if err != nil {
+		logs.Errorf("list llms error: %v", err)
+		return nil, errs.DBError
+	}
+	return list, nil
+}
+
 func newService() *service {
 	return &service{
 		repo: newModels(database.GetPostgresDB().GormDB),

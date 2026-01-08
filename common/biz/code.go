@@ -26,3 +26,11 @@ var (
 	ErrMcpConfigNotExisted = errs.NewError(30003, "McpConfig不存在")
 	ErrGetMcpTools         = errs.NewError(30004, "获取McpTools失败")
 )
+var (
+	ErrKnowledgeBaseNotFound   = errs.NewError(40001, "知识库不存在")
+	FileLoadError              = errs.NewError(40002, "文件加载错误")
+	ErrDocumentNotFound        = errs.NewError(40003, "文档不存在")
+	ErrEmbeddingConfigNotFound = errs.NewError(40004, "EmbeddingConfig不存在")
+	ErrEmbedding               = errs.NewError(40005, "Embedding错误")
+	ErrRetriever               = errs.NewError(40006, "Retriever错误")
+)

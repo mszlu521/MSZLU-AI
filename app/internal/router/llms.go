@@ -21,5 +21,6 @@ func (u *LLMRouter) Register(engine *gin.Engine) {
 		llmsHandler := llms.NewHandler()
 		llmsGroup.POST("/", llmsHandler.CreateLLM)
 		llmsGroup.GET("/", llmsHandler.ListLLMs)
+		llmsGroup.GET("/all", llmsHandler.ListLLMAll)
 	}
 }

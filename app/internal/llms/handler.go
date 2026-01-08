@@ -76,3 +76,20 @@ func (h *Handler) ListLLMs(c *gin.Context) {
 	}
 	res.Success(c, resp)
 }
+
+func (h *Handler) ListLLMAll(c *gin.Context) {
+	var listReq ListLLMsReq
+	if err := req.QueryParam(c, &listReq); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.listLLMAll(c.Request.Context(), userID, listReq)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}

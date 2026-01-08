@@ -26,5 +26,5 @@ type CreateLLMReq struct {
 }
 
 type ListLLMsReq struct {
-	ModelType model.LLMType `json:"modelType"`
+	ModelType model.LLMType `json:"modelType" form:"modelType"`
 }

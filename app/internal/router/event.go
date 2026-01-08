@@ -14,6 +14,7 @@ func (u *Event) Register() {
 	//TODO 注册事件相关的路由
 	llmService := llms.NewPublicService()
 	event.Register("getProviderConfig", llmService.GetProviderConfig)
+	event.Register("getEmbeddingConfig", llmService.GetEmbeddingConfig)
 	toolService := tools.NewPublicService()
 	event.Register("getToolsByIds", toolService.GetToolsByIds)
 }

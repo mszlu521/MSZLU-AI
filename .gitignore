@@ -3,3 +3,4 @@ docker/data
 docker/plugins
 mcp-server/internal/tool/params.go
 app/etc/config-prod.yml
+core/ai/tools/params.go
