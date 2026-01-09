@@ -33,6 +33,7 @@ require (
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.7 // indirect
 	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.2 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.8.0 // indirect
@@ -80,6 +81,7 @@ require (
 	github.com/ollama/ollama v0.9.6 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pkoukk/tiktoken-go v0.1.8 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/redis/go-redis/v9 v9.7.0 // indirect

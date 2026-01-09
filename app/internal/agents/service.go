@@ -253,6 +253,8 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 	var allTools []tool.BaseTool
 	//这里需要把关联的工具添加进去
 	allTools = append(allTools, s.buildTools(agent)...)
+	//在这里将关联的知识库内容查询出来
+	ragContext := s.buildRagContext(ctx, dataChan, message, agent)
 	modelAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Model:       chatModel,
 		Name:        agent.Name,
@@ -263,7 +265,7 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 			template := prompt.FromMessages(schema.FString, schema.SystemMessage(ai.BaseSystemPrompt))
 			messages, err2 := template.Format(ctx, map[string]any{
 				"role":       agent.SystemPrompt,
-				"ragContext": "",
+				"ragContext": ragContext,
 				"toolsInfo":  s.formatToolsInfo(allTools),
 				"agentsInfo": "",
 			})
@@ -463,6 +465,120 @@ func (s *service) formatToolsInfo(allTools []tool.BaseTool) string {
 		builder.WriteString(fmt.Sprintf("  params: `%s` \n", string(marshal)))
 	}
 	return builder.String()
+}
+
+func (s *service) addAgentKnowledgeBase(ctx context.Context, userId uuid.UUID, agentId uuid.UUID, addReq addAgentKnowledgeBaseReq) (any, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	//先检查agent是否存在
+	agent, err := s.repo.getAgent(ctx, userId, agentId)
+	if err != nil {
+		logs.Errorf("addAgentKnowledgeBase 获取agent失败: %v", err)
+		return nil, errs.DBError
+	}
+	if agent == nil {
+		return nil, biz.AgentNotFound
+	}
+	//先检查知识库是否存在
+	kb, err := s.getKnowledgeBase(ctx, userId, addReq.KnowledgeBaseID)
+	if err != nil {
+		logs.Errorf("addAgentKnowledgeBase 获取知识库失败: %v", err)
+		return nil, errs.DBError
+	}
+	if kb == nil {
+		return nil, biz.ErrKnowledgeBaseNotFound
+	}
+	//查询关联关系是否存在
+	exist, err := s.repo.isAgentKnowledgeBaseExist(ctx, agentId, addReq.KnowledgeBaseID)
+	if err != nil {
+		logs.Errorf("addAgentKnowledgeBase 查询关联关系是否存在失败: %v", err)
+		return nil, errs.DBError
+	}
+	//如果存在 就不需要再次添加了
+	if exist {
+		return nil, nil
+	}
+	err = s.repo.createAgentKnowledgeBase(ctx, &model.AgentKnowledgeBase{
+		AgentID:         agentId,
+		KnowledgeBaseId: addReq.KnowledgeBaseID,
+		Status:          model.AgentKnowledgeStatusEnabled,
+	})
+	if err != nil {
+		logs.Errorf("addAgentKnowledgeBase 创建关联关系失败: %v", err)
+		return nil, errs.DBError
+	}
+	return nil, nil
+}
+
+func (s *service) getKnowledgeBase(ctx context.Context, userId uuid.UUID, kbId uuid.UUID) (*model.KnowledgeBase, error) {
+	trigger, err := event.Trigger("getKnowledgeBase", &shared.GetKnowledgeBaseRequest{
+		UserId:          userId,
+		KnowledgeBaseId: kbId,
+	})
+	return trigger.(*model.KnowledgeBase), err
+}
+
+func (s *service) deleteAgentKnowledgeBase(ctx context.Context, userID uuid.UUID, agentId uuid.UUID, kbId uuid.UUID) (any, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	err := s.repo.deleteAgentKnowledgeBase(ctx, agentId, kbId)
+	if err != nil {
+		logs.Errorf("deleteAgentKnowledgeBase 删除关联关系失败: %v", err)
+		return nil, errs.DBError
+	}
+	return nil, nil
+}
+
+func (s *service) buildRagContext(ctx context.Context, dataChan chan string, message string, agent *model.Agent) string {
+	var ragContext string
+	if len(agent.KnowledgeBases) > 0 {
+		//从关联的知识库中进行查询
+		var allResult []*shared.SearchKnowledgeBaseResult
+		for _, v := range agent.KnowledgeBases {
+			results, err := s.searchKnowledgeBase(ctx, agent.CreatorID, message, v.ID)
+			if err != nil {
+				logs.Errorf("searchKnowledgeBase 搜索知识库失败: %v", err)
+				continue
+			}
+			allResult = append(allResult, results...)
+		}
+		if len(allResult) > 0 {
+			var contextBuilder strings.Builder
+			contextBuilder.WriteString("【 参考以下知识库内容回答问题 】\n")
+			for i, v := range allResult {
+				//为了防止内容过长，这里只取前几位的结果
+				//这个数字根据实际进行调整
+				if i >= 3 {
+					break
+				}
+				contextBuilder.WriteString(fmt.Sprintf("%d.  %s \n", i+1, v.Content))
+			}
+			ragContext = contextBuilder.String()
+			//知识库查询出来的内容，我们发送到前端进行展示
+			//toolName使用知识库的名称
+			var names strings.Builder
+			for _, v := range agent.KnowledgeBases {
+				names.WriteString(v.Name + "\t")
+			}
+			buildMessage := ai.BuildMessage(agent.Name, names.String(), ragContext)
+			dataChan <- buildMessage
+		}
+	}
+	return ragContext
+}
+
+func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, message string, id uuid.UUID) ([]*shared.SearchKnowledgeBaseResult, error) {
+	trigger, err := event.Trigger("searchKnowledgeBase", &shared.SearchKnowledgeBaseRequest{
+		UserId:          userId,
+		KnowledgeBaseId: id,
+		Query:           message,
+	})
+	if err != nil {
+		logs.Errorf("searchKnowledgeBase 搜索知识库失败: %v", err)
+		return nil, err
+	}
+	response := trigger.(*shared.SearchKnowledgeBaseResponse)
+	return response.Results, nil
 }
 
 func newService() *service {

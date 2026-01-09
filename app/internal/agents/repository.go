@@ -14,4 +14,7 @@ type repository interface {
 	updateAgent(ctx context.Context, agent *model.Agent) error
 	deleteAgentTools(ctx context.Context, agentId uuid.UUID) error
 	createAgentTools(ctx context.Context, tools []*model.AgentTool) error
+	isAgentKnowledgeBaseExist(ctx context.Context, agentId uuid.UUID, knowledgeBaseID uuid.UUID) (bool, error)
+	createAgentKnowledgeBase(ctx context.Context, ab *model.AgentKnowledgeBase) error
+	deleteAgentKnowledgeBase(ctx context.Context, agentId uuid.UUID, kbId uuid.UUID) error
 }

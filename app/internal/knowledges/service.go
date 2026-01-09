@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"common/biz"
+	"common/utils"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -295,6 +296,11 @@ func (s *service) uploadDocuments(ctx context.Context, userId uuid.UUID, kbId uu
 	return doc, nil
 }
 
+const (
+	maxChildSize     = 500 //子块最大的长度
+	childOverlapSize = 150 // 子块重叠的长度
+)
+
 func (s *service) processDocumentAndVectorAndStore(ctx context.Context, doc *model.Document, docs []*schema.Document, kb *model.KnowledgeBase) error {
 	//获取文档内容
 	var content string
@@ -306,146 +312,93 @@ func (s *service) processDocumentAndVectorAndStore(ctx context.Context, doc *mod
 		logs.Warnf("document content is empty")
 		return nil
 	}
-	//接下来就是切分+向量化+索引，我们先不考虑切分，直接存储全部的内容
-	var documents []*schema.Document
+	var parentModels []*model.DocumentChunk
+	var childSchemaDocs []*schema.Document
 	//这里我们先支持md文档
 	if doc.FileType == ".md" {
 		//md格式有清晰的标题 我们按照标题进行切分
-		documents = s.parseMarkdownHeaders(content)
-		if len(documents) == 0 {
-			documents = append(documents, &schema.Document{
-				ID:      doc.ID.String(),
-				Content: content,
+		//documents = s.parseMarkdownHeaders(content)
+		//if len(documents) == 0 {
+		//	documents = append(documents, &schema.Document{
+		//		ID:      doc.ID.String(),
+		//		Content: content,
+		//	})
+		//}
+		//对md文档进行层次性划分，我们以资料中提供的md文档为例子
+		//h1认为是文档名称 h2认为是章节 h3认为是小节 进行层次性划分
+		//chunk表中 存储h2的内容
+		//提取标题 这里我们写个通用的
+		h1Title := utils.ExtractTitle(content, "#")
+		if h1Title == "" {
+			h1Title = doc.Name
+		}
+		//获取h2的内容
+		h2Block := utils.SplitByHeading(content, "##")
+		for i, h2 := range h2Block {
+			parentId := uuid.New()
+			h2Title := utils.ExtractTitle(h2, "##")
+			if h2Title == "" {
+				h2Title = "概览"
+			}
+			//h2的内容是parent
+			parentModels = append(parentModels, &model.DocumentChunk{
+				BaseModel:       model.BaseModel{ID: parentId},
+				DocumentID:      doc.ID,
+				KnowledgeBaseID: kb.ID,
+				Content:         h2,
+				ChunkIndex:      i,
+				MetaInfo: map[string]interface{}{
+					"h1": h1Title,
+					"h2": h2Title,
+				},
+				TokenCount: utils.GetTokenCount(h2),
+				Status:     model.ChunkStatusEmbedded,
 			})
+			//获取h3的内容 这部分做为child
+			h3Block := utils.SplitByHeading(h2, "###")
+			for j, h3 := range h3Block {
+				h3Title := utils.ExtractTitle(h3, "###")
+				//这里我们给child的内容 添加一个前缀 表明所属的上级
+				pathPrefix := fmt.Sprintf("【文档:%s】 > 【主题:%s】", h1Title, h2Title)
+				if h3Title != "" {
+					h3Title += " > 【子题: " + h3Title + "】"
+				}
+				//添加一个换行
+				pathPrefix += "\n"
+				//为了防止子内容过长，我们设定一个长度，做一次切分
+				subTexts := utils.SplitTextByLength(h3, maxChildSize-len(pathPrefix), childOverlapSize)
+				for k, text := range subTexts {
+					//text就是最终子块的内容
+					childSchemaDocs = append(childSchemaDocs, s.buildChildSchemaDoc(parentId, doc, kb, pathPrefix+text, i, j, k))
+				}
+			}
 		}
 	} else {
-		//这里我们假设我们做了切分
-		documents = append(documents, &schema.Document{
-			ID:      doc.ID.String(),
-			Content: content,
-		})
-	}
-	//上述切分在元数据中生成了h1,h2,h3的元数据，我们可以将这些设置为标题 章节 段落，在生成文本的时候，将这些信息添加进去，方便知道上下文
-	var chunkMetaData []map[string]interface{}
-	for _, d := range documents {
-		metadata := map[string]interface{}{}
-		//可以给元数据加一些文档的信息, 如果要进行过滤，这些元数据可以作为过滤条件
-		metadata["doc_name"] = doc.Name
-		metadata["file_type"] = doc.FileType
-		if d.MetaData != nil {
-			if v, ok := d.MetaData["h1"]; ok {
-				metadata["title"] = v
-			}
-			if v, ok := d.MetaData["h2"]; ok {
-				metadata["chapter"] = v
-			}
-			if v, ok := d.MetaData["h3"]; ok {
-				metadata["section"] = v
-			}
-		}
-		chunkMetaData = append(chunkMetaData, metadata)
-	}
-	//我们给内容 添加一些前缀信息，就是如果有title chapter section这些，我们将这些信息添加上去,让内容知道是哪个模块下的
-	var chunks []string
-	for i, d := range documents {
-		var prefixBuilder strings.Builder
-		if len(chunkMetaData) > i {
-			meta := chunkMetaData[i]
-			if v, ok := meta["title"].(string); ok && v != "" {
-				prefixBuilder.WriteString(fmt.Sprintf("[%s] \n", v))
-			}
-			if v, ok := meta["chapter"].(string); ok && v != "" {
-				prefixBuilder.WriteString(fmt.Sprintf("章节： %s \n", v))
-			}
-			if v, ok := meta["section"].(string); ok && v != "" {
-				prefixBuilder.WriteString(fmt.Sprintf("小节：%s \n", v))
-			}
-		}
-		//添加前缀
-		chunks = append(chunks, prefixBuilder.String()+d.Content)
-	}
-	if len(chunks) == 0 {
-		//如果没有任何内容 就返回默认的
-		chunks = []string{content}
-		chunkMetaData = []map[string]interface{}{
-			{
-				"doc_name":  doc.Name,
-				"file_type": doc.FileType,
-			},
-		}
-	}
-	embedder, err := s.getEmbeddingConfig(kb.EmbeddingModelProvider, kb.EmbeddingModelName, kb.CreatorID)
-	//接下来我们存储 用到了eino
-	indexer, err := es8.NewIndexer(ctx, &es8.IndexerConfig{
-		Client: s.esClient,
-		Index:  s.buildIndex(kb.ID),
-		DocumentToFields: func(ctx context.Context, docs *schema.Document) (field2Value map[string]es8.FieldValue, err error) {
-			return map[string]es8.FieldValue{
-				"content": {
-					Value:    docs.Content,
-					EmbedKey: "content_vector",
+		//这个通用的处理，我们按照长度进行切分
+		parentTexts := utils.SplitByWindow(content, 1200, 200)
+		for i, pText := range parentTexts {
+			parentModels = append(parentModels, &model.DocumentChunk{
+				BaseModel:       model.BaseModel{ID: uuid.New()},
+				DocumentID:      doc.ID,
+				KnowledgeBaseID: kb.ID,
+				Content:         pText,
+				ChunkIndex:      i,
+				MetaInfo: map[string]interface{}{
+					"source":    doc.Name,
+					"file_type": doc.FileType,
+					"type":      "generic",
 				},
-				"doc_id": {
-					Value: doc.ID.String(),
-				},
-				"kb_id": {
-					Value: kb.ID.String(),
-				},
-				"metadata": {
-					Value: docs.MetaData,
-				},
-			}, nil
-		},
-		Embedding: embedder,
-	})
-	if err != nil {
-		logs.Errorf("new indexer error: %v", err)
-		return err
-	}
-	var schemaDocs []*schema.Document
-	//我们存储一些元数据进去，便于后续搜索
-	for i, chunk := range chunks {
-		//这个地方我们添加一些比如chunk的索引，方便后续搜索
-		currentChunkMeta := chunkMetaData[i%len(chunkMetaData)]
-		currentChunkMeta["position"] = i
-		//后续也可以加一些比如标题名称 作者名称 文章类型 等等的
-		schemaDocs = append(schemaDocs, &schema.Document{
-			ID:       uuid.New().String(),
-			Content:  chunk,
-			MetaData: currentChunkMeta,
-		})
-	}
-	ids, err := indexer.Store(ctx, schemaDocs)
-	if err != nil {
-		logs.Errorf("store documents error: %v", err)
-		return err
-	}
-	//接下来我们将其也存储一份到数据库中，做为原始数据凭证
-	var docChunks []*model.DocumentChunk
-	for i, v := range schemaDocs {
-		chunk := &model.DocumentChunk{
-			BaseModel: model.BaseModel{
-				ID: uuid.New(),
-			},
-			DocumentID:      doc.ID,
-			KnowledgeBaseID: kb.ID,
-			Content:         v.Content,
-			ChunkIndex:      i,
-			TokenCount:      len(v.Content), //这个后续我们获取
-			MetaInfo:        v.MetaData,
-			Status:          model.ChunkStatusEmbedded,
+				TokenCount: utils.GetTokenCount(pText),
+				Status:     model.ChunkStatusEmbedded,
+			})
+			pathPrefix := fmt.Sprintf("【文档:%s】【片段:%d】\n", doc.Name, i+1)
+			childTexts := utils.SplitByWindow(content, 400, 50)
+			for j, cText := range childTexts {
+				childSchemaDocs = append(childSchemaDocs, s.buildChildSchemaDoc(parentModels[i].ID, doc, kb, pathPrefix+cText, i, j, 0))
+			}
 		}
-		if i < len(ids) {
-			chunk.ElasticSearchID = ids[i]
-		}
-		docChunks = append(docChunks, chunk)
 	}
-	err = s.repo.createDocumentChunks(ctx, docChunks)
-	if err != nil {
-		logs.Errorf("create document chunks error: %v", err)
-		return err
-	}
-	return nil
+	return s.saveToStores(ctx, kb, parentModels, childSchemaDocs)
 }
 
 func (s *service) createTempFileFromUploadFile(src multipart.File, fileName string) (*os.File, error) {
@@ -544,7 +497,7 @@ func (s *service) deleteEsIndex(ctx context.Context, kbId uuid.UUID, documentId 
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"term": map[string]interface{}{
-				"doc_id,keyword": documentId.String(), //使用keyword精确匹配
+				"doc_id.keyword": documentId.String(), //使用keyword精确匹配
 			},
 		},
 	}
@@ -576,6 +529,10 @@ func (s *service) deleteEsIndex(ctx context.Context, kbId uuid.UUID, documentId 
 func (s *service) buildIndex(kbId uuid.UUID) string {
 	return fmt.Sprintf("kb_%s", kbId.String())
 }
+
+const (
+	maxSearchResult = 3 //设置一个最大搜索结果数量
+)
 
 func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbId uuid.UUID, params searchParams) (*SearchResponse, error) {
 	//记录开始时间
@@ -626,8 +583,6 @@ func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbI
 			}
 			doc.Content = src["content"].(string)
 			doc.MetaData = src["metadata"].(map[string]any)
-			doc.MetaData["doc_id"] = src["doc_id"]
-			doc.MetaData["kb_id"] = src["kb_id"]
 			if hit.Score_ != nil {
 				doc.WithScore(float64(*hit.Score_))
 			}
@@ -639,38 +594,61 @@ func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbI
 		logs.Errorf("new retriever error: %v", err)
 		return nil, biz.ErrRetriever
 	}
-	docs, err := retriever.Retrieve(ctx, params.Query)
+	childDocs, err := retriever.Retrieve(ctx, params.Query)
 	if err != nil {
 		logs.Errorf("retrieve error: %v", err)
 		return nil, biz.ErrRetriever
 	}
-	results := make([]*SearchResult, len(docs))
-	for i, doc := range docs {
-		docId := doc.MetaData["doc_id"].(string)
-		docIdUUID := uuid.MustParse(docId)
-		documentContent, err := s.repo.getDocument(ctx, userId, kbId, docIdUUID)
-		if err != nil {
-			logs.Errorf("get document error: %v", err)
-			return nil, biz.ErrDocumentNotFound
+	//我们需要查找匹配的子分段文档对应的父分段内容
+	parentIdMap := make(map[string]float64) //doc_chunk_id:score
+	var orderedParentIds []string
+	for _, cd := range childDocs {
+		pId, ok := cd.MetaData["parent_id"].(string)
+		if !ok {
+			continue
 		}
-		floatPosition := doc.MetaData["position"].(float64)
-		result := &SearchResult{
-			Content:    doc.Content,
-			DocumentId: docIdUUID,
-			Id:         uuid.MustParse(doc.ID),
-			Metadata:   doc.MetaData,
-			Position:   int(floatPosition),
-			Score:      doc.Score(),
-			Document:   documentContent,
+		//记录pid childDocs是按照分数从高到低排序的 我们记录一下顺序
+		if _, seen := parentIdMap[pId]; !seen {
+			//后续如果父分段内容过多，我们只需要取前几个
+			orderedParentIds = append(orderedParentIds, pId)
+			parentIdMap[pId] = cd.Score()
 		}
-		results[i] = result
+	}
+	if len(orderedParentIds) == 0 {
+		return &SearchResponse{
+			KbId:  kbId,
+			Query: params.Query,
+			Took:  time.Since(startTime).Microseconds(),
+			Total: 0,
+		}, nil
+	}
+	if len(orderedParentIds) > maxSearchResult {
+		//这里主要是为了防止知识库查询出来的内容过多，相似度太低的没有必要提供给大模型
+		orderedParentIds = orderedParentIds[:maxSearchResult]
+	}
+	//获取父分段内容
+	parentChunks, err := s.repo.getDocumentChunksByIds(ctx, orderedParentIds)
+	if err != nil {
+		logs.Errorf("get document chunks error: %v", err)
+		return nil, errs.DBError
+	}
+	results := make([]*SearchResult, 0, len(parentChunks))
+	for i, chunk := range parentChunks {
+		results = append(results, &SearchResult{
+			Content:    chunk.Content,
+			DocumentId: chunk.DocumentID,
+			Id:         chunk.ID,
+			Metadata:   chunk.MetaInfo,
+			Position:   i,
+			Score:      parentIdMap[chunk.ID.String()],
+		})
 	}
 	return &SearchResponse{
 		KbId:    kbId,
 		Query:   params.Query,
 		Results: results,
 		Took:    time.Since(startTime).Microseconds(),
-		Total:   int64(len(docs)),
+		Total:   int64(len(results)),
 	}, nil
 }
 
@@ -737,6 +715,66 @@ func (s *service) parseMarkdownHeaders(content string) []*schema.Document {
 	flushBuffer()
 
 	return docs
+}
+
+func (s *service) buildChildSchemaDoc(parentId uuid.UUID, doc *model.Document, kb *model.KnowledgeBase, text string, i int, j int, k int) *schema.Document {
+	return &schema.Document{
+		ID:      uuid.New().String(),
+		Content: text,
+		MetaData: map[string]interface{}{
+			"doc_id":    doc.ID.String(),
+			"kb_id":     kb.ID.String(),
+			"parent_id": parentId.String(),
+			"seq":       fmt.Sprintf("%d.%d.%d", i, j, k),
+		},
+	}
+}
+
+func (s *service) saveToStores(ctx context.Context, kb *model.KnowledgeBase, parentModels []*model.DocumentChunk, docs []*schema.Document) error {
+	//父分段直接存入数据库pg
+	err := s.repo.createDocumentChunks(ctx, parentModels)
+	if err != nil {
+		logs.Errorf("create document chunks error: %v", err)
+		return err
+	}
+	//子分段存入向量数据库，这里我们存入es中
+	embedder, err := s.getEmbeddingConfig(kb.EmbeddingModelProvider, kb.EmbeddingModelName, kb.CreatorID)
+	if err != nil {
+		logs.Errorf("get embedding config error: %v", err)
+		return biz.ErrEmbeddingConfigNotFound
+	}
+	indexer, err := es8.NewIndexer(ctx, &es8.IndexerConfig{
+		Client: s.esClient,
+		Index:  s.buildIndex(kb.ID),
+		DocumentToFields: func(ctx context.Context, d *schema.Document) (field2Value map[string]es8.FieldValue, err error) {
+			return map[string]es8.FieldValue{
+				"content": {
+					Value:    d.Content,
+					EmbedKey: "content_vector",
+				},
+				"doc_id": {
+					Value: d.MetaData["doc_id"],
+				},
+				"parent_id": {
+					Value: d.MetaData["parent_id"],
+				},
+				"metadata": {
+					Value: d.MetaData,
+				},
+			}, nil
+		},
+		Embedding: embedder,
+	})
+	if err != nil {
+		logs.Errorf("new indexer error: %v", err)
+		return err
+	}
+	_, err = indexer.Store(ctx, docs)
+	if err != nil {
+		logs.Errorf("store documents error: %v", err)
+		return err
+	}
+	return nil
 }
 func newService() *service {
 	client, err := elasticsearch.NewClient(elasticsearch.Config{

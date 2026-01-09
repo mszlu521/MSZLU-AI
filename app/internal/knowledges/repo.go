@@ -23,4 +23,5 @@ type repository interface {
 	transaction(ctx context.Context, f func(tx *gorm.DB) error) error
 	deleteDocuments(ctx context.Context, tx *gorm.DB, userId uuid.UUID, kbId uuid.UUID, documentId uuid.UUID) error
 	deleteDocumentChunks(ctx context.Context, tx *gorm.DB, kbId uuid.UUID, documentId uuid.UUID) error
+	getDocumentChunksByIds(ctx context.Context, ids []string) ([]*model.DocumentChunk, error)
 }

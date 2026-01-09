@@ -1,6 +1,7 @@
 package router
 
 import (
+	"app/internal/knowledges"
 	"app/internal/llms"
 	"app/internal/tools"
 
@@ -17,4 +18,7 @@ func (u *Event) Register() {
 	event.Register("getEmbeddingConfig", llmService.GetEmbeddingConfig)
 	toolService := tools.NewPublicService()
 	event.Register("getToolsByIds", toolService.GetToolsByIds)
+	knowledgeService := knowledges.NewPublicService()
+	event.Register("getKnowledgeBase", knowledgeService.GetKnowledgeBase)
+	event.Register("searchKnowledgeBase", knowledgeService.SearchKnowledgeBase)
 }

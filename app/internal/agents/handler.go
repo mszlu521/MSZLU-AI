@@ -195,6 +195,48 @@ func (h *Handler) UpdateAgentTool(c *gin.Context) {
 	res.Success(c, resp)
 }
 
+func (h *Handler) AddAgentKnowledgeBase(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var addReq addAgentKnowledgeBaseReq
+	if err := req.JsonParam(c, &addReq); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.addAgentKnowledgeBase(c.Request.Context(), userID, agentId, addReq)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) DeleteAgentKnowledgeBase(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var kbId uuid.UUID
+	if err := req.Path(c, "kbId", &kbId); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.deleteAgentKnowledgeBase(c.Request.Context(), userID, agentId, kbId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

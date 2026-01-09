@@ -13,18 +13,39 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) getDocumentChunksByIds(ctx context.Context, ids []string) ([]*model.DocumentChunk, error) {
+	var documentChunks []*model.DocumentChunk
+	err := m.db.WithContext(ctx).Where("id in ?", ids).Find(&documentChunks).Error
+	if err != nil {
+		return nil, err
+	}
+	//这里我们需要手动排序 保证查询结果和ids的顺序一致
+	chunkMap := make(map[string]*model.DocumentChunk)
+	for _, chunk := range documentChunks {
+		chunkMap[chunk.ID.String()] = chunk
+	}
+	orderChunks := make([]*model.DocumentChunk, 0, len(ids))
+	for _, id := range ids {
+		if chunk, ok := chunkMap[id]; ok {
+			orderChunks = append(orderChunks, chunk)
+		}
+	}
+	return orderChunks, nil
+}
+
 func (m *models) deleteDocuments(ctx context.Context, tx *gorm.DB, userId uuid.UUID, kbId uuid.UUID, documentId uuid.UUID) error {
 	if tx == nil {
 		tx = m.db
 	}
-	return tx.WithContext(ctx).Where("id = ? and creator_id=? and kb_id = ?", documentId, userId, kbId).Delete(&model.Document{}).Error
+	return tx.WithContext(ctx).Where("id = ? and creator_id=? and kb_id = ?", documentId, userId, kbId).Unscoped().Delete(&model.Document{}).Error
 }
 
 func (m *models) deleteDocumentChunks(ctx context.Context, tx *gorm.DB, kbId uuid.UUID, documentId uuid.UUID) error {
 	if tx == nil {
 		tx = m.db
 	}
-	return tx.WithContext(ctx).Where("document_id = ? and kb_id = ?", documentId, kbId).Delete(&model.DocumentChunk{}).Error
+	//如果不想要通过deleted_at进行软删除，可以加上Unscoped
+	return tx.WithContext(ctx).Where("document_id = ? and kb_id = ?", documentId, kbId).Unscoped().Delete(&model.DocumentChunk{}).Error
 }
 
 func (m *models) getDocument(ctx context.Context, userId uuid.UUID, kbId uuid.UUID, documentId uuid.UUID) (*model.Document, error) {

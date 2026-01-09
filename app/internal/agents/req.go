@@ -46,3 +46,7 @@ type ToolItem struct {
 	ID   uuid.UUID `json:"id"`
 	Type string    `json:"type"`
 }
+
+type addAgentKnowledgeBaseReq struct {
+	KnowledgeBaseID uuid.UUID `json:"kb_id"`
+}

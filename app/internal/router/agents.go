@@ -19,5 +19,7 @@ func (u *AgentRouter) Register(engine *gin.Engine) {
 		agentsGroup.PUT("/update", agentsHandler.UpdateAgent)
 		agentsGroup.POST("/chat", agentsHandler.AgentMessage)
 		agentsGroup.POST("/:id/tools/batch", agentsHandler.UpdateAgentTool)
+		agentsGroup.POST("/:id/knowledge-bases", agentsHandler.AddAgentKnowledgeBase)
+		agentsGroup.DELETE("/:id/knowledge-bases/:kbId", agentsHandler.DeleteAgentKnowledgeBase)
 	}
 }

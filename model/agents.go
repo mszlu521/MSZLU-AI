@@ -56,7 +56,8 @@ type Agent struct {
 	// PublishedAt 发布时间戳
 	PublishedAt *time.Time `json:"publishedAt" gorm:"column:published_at;type:timestamptz"`
 
-	Tools []*Tool `json:"tools" gorm:"many2many:agent_tools"`
+	Tools          []*Tool          `json:"tools" gorm:"many2many:agent_tools"`
+	KnowledgeBases []*KnowledgeBase `json:"knowledgeBases" gorm:"many2many:agent_knowledge_bases"`
 }
 
 // TableName 返回表名
@@ -170,4 +171,25 @@ type AgentTool struct {
 // TableName 返回表名
 func (AgentTool) TableName() string {
 	return "agent_tools"
+}
+
+type AgentKnowledgeStatus string
+
+const (
+	AgentKnowledgeStatusEnabled  = "enabled"
+	AgentKnowledgeStatusDisabled = "disabled"
+)
+
+// AgentKnowledgeBase 定义了智能体与知识库的多对多关联
+type AgentKnowledgeBase struct {
+	AgentID         uuid.UUID            `json:"agentId" gorm:"column:agent_id;type:bigint unsigned;not null;index:idx_agent_id"`
+	KnowledgeBaseId uuid.UUID            `json:"knowledgeBaseId" gorm:"column:knowledge_base_id;type:bigint unsigned;not null;index:idx_kb_id"`
+	Status          AgentKnowledgeStatus `json:"status" gorm:"column:status;type:varchar(20);not null;default:'enabled'"`
+	// 关联关系
+	KnowledgeBase *KnowledgeBase `json:"knowledge_base" gorm:"foreignKey:knowledge_base_id"`
+}
+
+// TableName 返回表名
+func (AgentKnowledgeBase) TableName() string {
+	return "agent_knowledge_bases"
 }

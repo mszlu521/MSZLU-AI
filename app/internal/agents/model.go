@@ -13,6 +13,23 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) deleteAgentKnowledgeBase(ctx context.Context, agentId uuid.UUID, kbId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ? and knowledge_base_id = ?", agentId, kbId).Delete(&model.AgentKnowledgeBase{}).Error
+}
+
+func (m *models) isAgentKnowledgeBaseExist(ctx context.Context, agentId uuid.UUID, knowledgeBaseID uuid.UUID) (bool, error) {
+	var count int64
+	err := m.db.WithContext(ctx).Model(&model.AgentKnowledgeBase{}).Where("agent_id = ? and knowledge_base_id = ?", agentId, knowledgeBaseID).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (m *models) createAgentKnowledgeBase(ctx context.Context, ab *model.AgentKnowledgeBase) error {
+	return m.db.WithContext(ctx).Create(ab).Error
+}
+
 func (m *models) deleteAgentTools(ctx context.Context, agentId uuid.UUID) error {
 	return m.db.WithContext(ctx).Where("agent_id = ?", agentId).Delete(&model.AgentTool{}).Error
 }
@@ -27,7 +44,10 @@ func (m *models) updateAgent(ctx context.Context, agent *model.Agent) error {
 
 func (m *models) getAgent(ctx context.Context, userID uuid.UUID, id uuid.UUID) (*model.Agent, error) {
 	var agent model.Agent
-	err := m.db.WithContext(ctx).Preload("Tools").Where("id = ? and creator_id = ? ", id, userID).First(&agent).Error
+	err := m.db.WithContext(ctx).
+		Preload("Tools").
+		Preload("KnowledgeBases").
+		Where("id = ? and creator_id = ? ", id, userID).First(&agent).Error
 	if gorms.IsRecordNotFoundError(err) {
 		return nil, nil
 	}
