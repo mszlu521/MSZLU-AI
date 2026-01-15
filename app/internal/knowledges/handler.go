@@ -1,9 +1,13 @@
 package knowledges
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/mszlu521/thunder/errs"
+	"github.com/mszlu521/thunder/logs"
 	"github.com/mszlu521/thunder/req"
 	"github.com/mszlu521/thunder/res"
 )
@@ -166,6 +170,12 @@ func (h *Handler) DeleteDocuments(c *gin.Context) {
 }
 
 func (h *Handler) SearchKnowledgeBase(c *gin.Context) {
+	rc := http.NewResponseController(c.Writer)
+	//为了防止超时，因为我们加了大模型对话
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		//一般不会失败
+		logs.Warnf("SetWriteDeadline error: %v", err)
+	}
 	var params searchParams
 	if err := req.JsonParam(c, &params); err != nil {
 		return

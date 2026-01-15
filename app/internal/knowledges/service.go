@@ -7,6 +7,7 @@ import (
 	"common/biz"
 	"common/utils"
 	"context"
+	"core/ai/kbs"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,22 +19,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/cloudwego/eino-ext/components/document/loader/file"
-	"github.com/cloudwego/eino-ext/components/indexer/es8"
-	reES8 "github.com/cloudwego/eino-ext/components/retriever/es8"
-	"github.com/cloudwego/eino-ext/components/retriever/es8/search_mode"
+	"github.com/cloudwego/eino-ext/components/document/parser/docx"
+	"github.com/cloudwego/eino-ext/components/document/parser/html"
+	"github.com/cloudwego/eino-ext/components/document/parser/pdf"
+	"github.com/cloudwego/eino-ext/components/model/ollama"
+	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino-ext/components/model/qwen"
 	"github.com/cloudwego/eino/components/document"
 	"github.com/cloudwego/eino/components/document/parser"
 	"github.com/cloudwego/eino/components/embedding"
+	aiModel "github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/types"
 	"github.com/google/uuid"
 	"github.com/mszlu521/thunder/ai/einos"
 	"github.com/mszlu521/thunder/database"
+	"github.com/mszlu521/thunder/einos/components/document/parser/epub"
 	"github.com/mszlu521/thunder/errs"
 	"github.com/mszlu521/thunder/event"
 	"github.com/mszlu521/thunder/logs"
+	html2 "golang.org/x/net/html"
 	"gorm.io/gorm"
 )
 
@@ -216,7 +223,52 @@ func (s *service) uploadDocuments(ctx context.Context, userId uuid.UUID, kbId uu
 	if kb == nil {
 		return nil, biz.ErrKnowledgeBaseNotFound
 	}
-	selectParser := parser.TextParser{}
+	ext := strings.ToLower(filepath.Ext(uploadFile.Filename))
+	fileType := kbs.FromExtension(ext)
+	var selectParser parser.Parser
+	switch fileType {
+	case kbs.Markdown:
+		selectParser = parser.TextParser{}
+	case kbs.Docx:
+		selectParser, err = kbs.DocxParser(&docx.Config{
+			ToSections:     true,
+			IncludeTables:  true,
+			IncludeFooters: true,
+			IncludeHeaders: true,
+		})
+		if err != nil {
+			logs.Errorf("new docx parser error: %v", err)
+			return nil, biz.FileLoadError
+		}
+	case kbs.PDF:
+		selectParser, err = kbs.PDFParser(&pdf.Config{
+			//不按分页 获取全部内容
+			ToPages: false,
+		})
+		if err != nil {
+			logs.Errorf("new pdf parser error: %v", err)
+			return nil, biz.FileLoadError
+		}
+	case kbs.Html:
+		selectParser, err = kbs.HtmlParser(&kbs.HtmlConfig{
+			Selector: &html.BodySelector,
+		})
+		if err != nil {
+			logs.Errorf("new html parser error: %v", err)
+			return nil, biz.FileLoadError
+		}
+	case kbs.Epub:
+		selectParser, err = kbs.EpubParser(&epub.Config{
+			StripHTML: true,
+		})
+		if err != nil {
+			logs.Errorf("new epub parser error: %v", err)
+			return nil, biz.FileLoadError
+		}
+
+	default:
+		selectParser = parser.TextParser{}
+	}
 	//读取文件内容
 	loader, err := file.NewFileLoader(ctx, &file.FileLoaderConfig{
 		Parser: selectParser,
@@ -247,7 +299,6 @@ func (s *service) uploadDocuments(ctx context.Context, userId uuid.UUID, kbId uu
 		return nil, biz.FileLoadError
 	}
 	//文件后轴
-	ext := strings.ToLower(filepath.Ext(uploadFile.Filename))
 	doc := &model.Document{
 		KnowledgeBaseID: kb.ID,
 		CreatorID:       userId,
@@ -314,8 +365,9 @@ func (s *service) processDocumentAndVectorAndStore(ctx context.Context, doc *mod
 	}
 	var parentModels []*model.DocumentChunk
 	var childSchemaDocs []*schema.Document
+	fileType := kbs.FromExtension(doc.FileType)
 	//这里我们先支持md文档
-	if doc.FileType == ".md" {
+	if fileType == kbs.Markdown {
 		//md格式有清晰的标题 我们按照标题进行切分
 		//documents = s.parseMarkdownHeaders(content)
 		//if len(documents) == 0 {
@@ -328,51 +380,15 @@ func (s *service) processDocumentAndVectorAndStore(ctx context.Context, doc *mod
 		//h1认为是文档名称 h2认为是章节 h3认为是小节 进行层次性划分
 		//chunk表中 存储h2的内容
 		//提取标题 这里我们写个通用的
-		h1Title := utils.ExtractTitle(content, "#")
-		if h1Title == "" {
-			h1Title = doc.Name
-		}
-		//获取h2的内容
-		h2Block := utils.SplitByHeading(content, "##")
-		for i, h2 := range h2Block {
-			parentId := uuid.New()
-			h2Title := utils.ExtractTitle(h2, "##")
-			if h2Title == "" {
-				h2Title = "概览"
-			}
-			//h2的内容是parent
-			parentModels = append(parentModels, &model.DocumentChunk{
-				BaseModel:       model.BaseModel{ID: parentId},
-				DocumentID:      doc.ID,
-				KnowledgeBaseID: kb.ID,
-				Content:         h2,
-				ChunkIndex:      i,
-				MetaInfo: map[string]interface{}{
-					"h1": h1Title,
-					"h2": h2Title,
-				},
-				TokenCount: utils.GetTokenCount(h2),
-				Status:     model.ChunkStatusEmbedded,
-			})
-			//获取h3的内容 这部分做为child
-			h3Block := utils.SplitByHeading(h2, "###")
-			for j, h3 := range h3Block {
-				h3Title := utils.ExtractTitle(h3, "###")
-				//这里我们给child的内容 添加一个前缀 表明所属的上级
-				pathPrefix := fmt.Sprintf("【文档:%s】 > 【主题:%s】", h1Title, h2Title)
-				if h3Title != "" {
-					h3Title += " > 【子题: " + h3Title + "】"
-				}
-				//添加一个换行
-				pathPrefix += "\n"
-				//为了防止子内容过长，我们设定一个长度，做一次切分
-				subTexts := utils.SplitTextByLength(h3, maxChildSize-len(pathPrefix), childOverlapSize)
-				for k, text := range subTexts {
-					//text就是最终子块的内容
-					childSchemaDocs = append(childSchemaDocs, s.buildChildSchemaDoc(parentId, doc, kb, pathPrefix+text, i, j, k))
-				}
-			}
-		}
+		parentModels, childSchemaDocs = s.processMarkdown(content, doc, parentModels, kb, childSchemaDocs)
+	} else if fileType == kbs.Docx {
+		parentModels, childSchemaDocs = s.processDocx(docs, doc, parentModels, kb, childSchemaDocs)
+	} else if fileType == kbs.PDF {
+		parentModels, childSchemaDocs = s.processPDF(docs, doc, parentModels, kb, childSchemaDocs)
+	} else if fileType == kbs.Html {
+		parentModels, childSchemaDocs = s.processHtml(docs, doc, parentModels, kb, childSchemaDocs)
+	} else if fileType == kbs.Epub {
+		parentModels, childSchemaDocs = s.processEpub(docs, doc, parentModels, kb, childSchemaDocs)
 	} else {
 		//这个通用的处理，我们按照长度进行切分
 		parentTexts := utils.SplitByWindow(content, 1200, 200)
@@ -394,11 +410,60 @@ func (s *service) processDocumentAndVectorAndStore(ctx context.Context, doc *mod
 			pathPrefix := fmt.Sprintf("【文档:%s】【片段:%d】\n", doc.Name, i+1)
 			childTexts := utils.SplitByWindow(content, 400, 50)
 			for j, cText := range childTexts {
-				childSchemaDocs = append(childSchemaDocs, s.buildChildSchemaDoc(parentModels[i].ID, doc, kb, pathPrefix+cText, i, j, 0))
+				childSchemaDocs = append(childSchemaDocs, s.buildChildSchemaDoc(parentModels[i].ID, doc, kb, pathPrefix+cText, i, j, 0, nil))
 			}
 		}
 	}
 	return s.saveToStores(ctx, kb, parentModels, childSchemaDocs)
+}
+
+func (s *service) processMarkdown(content string, doc *model.Document, parentModels []*model.DocumentChunk, kb *model.KnowledgeBase, childSchemaDocs []*schema.Document) ([]*model.DocumentChunk, []*schema.Document) {
+	h1Title := utils.ExtractTitle(content, "#")
+	if h1Title == "" {
+		h1Title = doc.Name
+	}
+	//获取h2的内容
+	h2Block := utils.SplitByHeading(content, "##")
+	for i, h2 := range h2Block {
+		parentId := uuid.New()
+		h2Title := utils.ExtractTitle(h2, "##")
+		if h2Title == "" {
+			h2Title = "概览"
+		}
+		//h2的内容是parent
+		parentModels = append(parentModels, &model.DocumentChunk{
+			BaseModel:       model.BaseModel{ID: parentId},
+			DocumentID:      doc.ID,
+			KnowledgeBaseID: kb.ID,
+			Content:         h2,
+			ChunkIndex:      i,
+			MetaInfo: map[string]interface{}{
+				"h1": h1Title,
+				"h2": h2Title,
+			},
+			TokenCount: utils.GetTokenCount(h2),
+			Status:     model.ChunkStatusEmbedded,
+		})
+		//获取h3的内容 这部分做为child
+		h3Block := utils.SplitByHeading(h2, "###")
+		for j, h3 := range h3Block {
+			h3Title := utils.ExtractTitle(h3, "###")
+			//这里我们给child的内容 添加一个前缀 表明所属的上级
+			pathPrefix := fmt.Sprintf("【文档:%s】 > 【主题:%s】", h1Title, h2Title)
+			if h3Title != "" {
+				h3Title += " > 【子题: " + h3Title + "】"
+			}
+			//添加一个换行
+			pathPrefix += "\n"
+			//为了防止子内容过长，我们设定一个长度，做一次切分
+			subTexts := utils.SplitTextByLength(h3, maxChildSize-len(pathPrefix), childOverlapSize)
+			for k, text := range subTexts {
+				//text就是最终子块的内容
+				childSchemaDocs = append(childSchemaDocs, s.buildChildSchemaDoc(parentId, doc, kb, pathPrefix+text, i, j, k, nil))
+			}
+		}
+	}
+	return parentModels, childSchemaDocs
 }
 
 func (s *service) createTempFileFromUploadFile(src multipart.File, fileName string) (*os.File, error) {
@@ -531,7 +596,7 @@ func (s *service) buildIndex(kbId uuid.UUID) string {
 }
 
 const (
-	maxSearchResult = 3 //设置一个最大搜索结果数量
+	maxSearchResult = 5 //设置一个最大搜索结果数量
 )
 
 func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbId uuid.UUID, params searchParams) (*SearchResponse, error) {
@@ -557,48 +622,28 @@ func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbI
 			Total:   0,
 		}, nil
 	}
+	//我们这里调用大模型对用户的问题进行关键的信息提取，比如一百章讲了什么，提取到100这个章节数，可以通过元数据进行精确匹配
+	intent, _ := s.parseQueryIntent(ctx, knowledgeBase, params.Query)
 	//获取到向量模型配置
 	embedder, err := s.getEmbeddingConfig(knowledgeBase.EmbeddingModelProvider, knowledgeBase.EmbeddingModelName, userId)
 	if err != nil {
 		logs.Errorf("get embedding config error: %v", err)
 		return nil, biz.ErrEmbeddingConfigNotFound
 	}
-	//构建es的检索
-	retriever, err := reES8.NewRetriever(ctx, &reES8.RetrieverConfig{
-		Client: s.esClient,
-		Index:  index,
-		SearchMode: search_mode.SearchModeApproximate(&search_mode.ApproximateConfig{
-			VectorFieldName: "content_vector",
-		}),
-		ResultParser: func(ctx context.Context, hit types.Hit) (doc *schema.Document, err error) {
-			doc = &schema.Document{
-				ID:       *hit.Id_,
-				Content:  "",
-				MetaData: map[string]interface{}{},
-			}
-			var src map[string]any
-			err = json.Unmarshal(hit.Source_, &src)
-			if err != nil {
-				return nil, err
-			}
-			doc.Content = src["content"].(string)
-			doc.MetaData = src["metadata"].(map[string]any)
-			if hit.Score_ != nil {
-				doc.WithScore(float64(*hit.Score_))
-			}
-			return doc, nil
-		},
-		Embedding: embedder,
-	})
+	//这里正常需要根据知识库中的存储类型判断，因为前端没有修改的地方 我们就以写死的方式进行替换不同的存储
+	store, err := kbs.NewESVectorStore(ctx, s.esClient, index, embedder)
 	if err != nil {
-		logs.Errorf("new retriever error: %v", err)
-		return nil, biz.ErrRetriever
+		logs.Errorf("new vector store error: %v", err)
+		return nil, err
 	}
-	childDocs, err := retriever.Retrieve(ctx, params.Query)
-	if err != nil {
-		logs.Errorf("retrieve error: %v", err)
-		return nil, biz.ErrRetriever
+	filter := make(kbs.SearchFilter)
+	if intent.ChapterNum > 0 {
+		filter["chapter_num"] = intent.ChapterNum
 	}
+	if intent.VolumeNum > 0 {
+		filter["volume_num"] = intent.VolumeNum
+	}
+	childDocs, err := store.Search(ctx, intent.Keywords, 10, filter)
 	//我们需要查找匹配的子分段文档对应的父分段内容
 	parentIdMap := make(map[string]float64) //doc_chunk_id:score
 	var orderedParentIds []string
@@ -717,16 +762,23 @@ func (s *service) parseMarkdownHeaders(content string) []*schema.Document {
 	return docs
 }
 
-func (s *service) buildChildSchemaDoc(parentId uuid.UUID, doc *model.Document, kb *model.KnowledgeBase, text string, i int, j int, k int) *schema.Document {
+func (s *service) buildChildSchemaDoc(parentId uuid.UUID, doc *model.Document, kb *model.KnowledgeBase, text string, i int, j int, k int, meta map[string]any) *schema.Document {
+
+	data := map[string]interface{}{
+		"doc_id":    doc.ID.String(),
+		"kb_id":     kb.ID.String(),
+		"parent_id": parentId.String(),
+		"seq":       fmt.Sprintf("%d.%d.%d", i, j, k),
+	}
+	if meta != nil {
+		for k, v := range meta {
+			data[k] = v
+		}
+	}
 	return &schema.Document{
-		ID:      uuid.New().String(),
-		Content: text,
-		MetaData: map[string]interface{}{
-			"doc_id":    doc.ID.String(),
-			"kb_id":     kb.ID.String(),
-			"parent_id": parentId.String(),
-			"seq":       fmt.Sprintf("%d.%d.%d", i, j, k),
-		},
+		ID:       uuid.New().String(),
+		Content:  text,
+		MetaData: data,
 	}
 }
 
@@ -743,38 +795,517 @@ func (s *service) saveToStores(ctx context.Context, kb *model.KnowledgeBase, par
 		logs.Errorf("get embedding config error: %v", err)
 		return biz.ErrEmbeddingConfigNotFound
 	}
-	indexer, err := es8.NewIndexer(ctx, &es8.IndexerConfig{
-		Client: s.esClient,
-		Index:  s.buildIndex(kb.ID),
-		DocumentToFields: func(ctx context.Context, d *schema.Document) (field2Value map[string]es8.FieldValue, err error) {
-			return map[string]es8.FieldValue{
-				"content": {
-					Value:    d.Content,
-					EmbedKey: "content_vector",
-				},
-				"doc_id": {
-					Value: d.MetaData["doc_id"],
-				},
-				"parent_id": {
-					Value: d.MetaData["parent_id"],
-				},
-				"metadata": {
-					Value: d.MetaData,
-				},
-			}, nil
-		},
-		Embedding: embedder,
-	})
+	store, err := kbs.NewESVectorStore(ctx, s.esClient, s.buildIndex(kb.ID), embedder)
 	if err != nil {
 		logs.Errorf("new indexer error: %v", err)
 		return err
 	}
-	_, err = indexer.Store(ctx, docs)
+	err = store.Store(ctx, docs)
 	if err != nil {
 		logs.Errorf("store documents error: %v", err)
 		return err
 	}
 	return nil
+}
+
+func (s *service) processDocx(sections []*schema.Document, doc *model.Document, parentModels []*model.DocumentChunk, kb *model.KnowledgeBase, childSchemaDocs []*schema.Document) ([]*model.DocumentChunk, []*schema.Document) {
+	for _, sec := range sections {
+		//main header footers tables
+		sectionType := sec.MetaData["sectionType"].(string)
+		//构建一个面包屑的前缀，放在内容的前面
+		sectionLabel := s.mapSectionToChinese(sectionType)
+		breadcrumb := fmt.Sprintf("【文档：%s】> 【%s】", doc.Name, sectionLabel)
+		//父分段，这里word文档是直接全部读出来的，我们按照字符进行切分
+		parentTexts := utils.SplitByWindow(sec.Content, 1200, 200)
+		for i, text := range parentTexts {
+			endContent := breadcrumb + "> " + text
+			parentId := uuid.New()
+			parentModel := &model.DocumentChunk{
+				BaseModel: model.BaseModel{
+					ID: parentId,
+				},
+				Content:         endContent,
+				DocumentID:      doc.ID,
+				KnowledgeBaseID: kb.ID,
+				ChunkIndex:      i,
+				MetaInfo:        sec.MetaData,
+				TokenCount:      utils.GetTokenCount(endContent),
+				Status:          model.ChunkStatusEmbedded,
+			}
+			parentModels = append(parentModels, parentModel)
+			//子分段 这个数值 可以做成可配置的
+			pathPrefix := breadcrumb + "\n"
+			childTexts := utils.SplitByWindow(text, 400, 50)
+			for j, childText := range childTexts {
+				childSchemaDoc := s.buildChildSchemaDoc(parentId, doc, kb, pathPrefix+childText, i, j, 0, nil)
+				childSchemaDocs = append(childSchemaDocs, childSchemaDoc)
+			}
+		}
+	}
+	return parentModels, childSchemaDocs
+}
+
+func (s *service) mapSectionToChinese(sectionType string) string {
+	switch sectionType {
+	case "main":
+		return "正文"
+	case "header":
+		return "标题"
+	case "footer":
+		return "页脚"
+	case "table":
+		return "表格"
+	default:
+		return "文档片段"
+	}
+}
+
+func (s *service) processPDF(pages []*schema.Document, doc *model.Document, parentModels []*model.DocumentChunk, kb *model.KnowledgeBase, childSchemaDocs []*schema.Document) ([]*model.DocumentChunk, []*schema.Document) {
+	if len(pages) == 0 {
+		return parentModels, childSchemaDocs
+	}
+	//自定义去处理整个内容，切分为父分段
+	parentTexts := s.cleanPDFText(pages[0].Content)
+	for j, text := range parentTexts {
+		breadcrumb := fmt.Sprintf("【文档：%s】> 【第%d页】", doc.Name, j+1)
+		endContent := breadcrumb + "\n" + text
+		parentId := uuid.New()
+		parentModel := &model.DocumentChunk{
+			BaseModel: model.BaseModel{
+				ID: parentId,
+			},
+			Content:         endContent,
+			DocumentID:      doc.ID,
+			KnowledgeBaseID: kb.ID,
+			ChunkIndex:      j,
+			MetaInfo: map[string]interface{}{
+				"page": j + 1,
+			},
+			TokenCount: utils.GetTokenCount(endContent),
+			Status:     model.ChunkStatusEmbedded,
+		}
+		parentModels = append(parentModels, parentModel)
+		//子分段 这个数值 可以做成可配置的
+		pathPrefix := breadcrumb + "\n"
+		childTexts := utils.SplitByWindow(text, 400, 50)
+		for k, childText := range childTexts {
+			childSchemaDoc := s.buildChildSchemaDoc(parentId, doc, kb, pathPrefix+childText, j, k, 0, nil)
+			childSchemaDocs = append(childSchemaDocs, childSchemaDoc)
+		}
+	}
+	return parentModels, childSchemaDocs
+}
+
+func (s *service) cleanPDFText(content string) []string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\t", "")
+	content = regexp.MustCompile(`\s+`).ReplaceAllString(content, " ")
+	boundaryPatterns := []string{
+		`\s#\s*`,        //标题
+		`Chapter\s+\d+`, //英文章节
+		`第[一二三四五六七八九十]+[章节]`, //中文章节
+	}
+	for _, p := range boundaryPatterns {
+		re := regexp.MustCompile(p)
+		content = re.ReplaceAllString(content, "\n\n$0")
+	}
+	var parents []string
+	var buf strings.Builder
+	flush := func() {
+		if buf.Len() == 0 {
+			return
+		}
+		parents = append(parents, strings.TrimSpace(buf.String()))
+		buf.Reset()
+	}
+	rawBlocks := strings.Split(content, "\n")
+	for _, block := range rawBlocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			flush()
+			continue
+		}
+		//处理代码行
+		if looksLikeCode(block) {
+			flush()
+			parents = append(parents, block)
+			continue
+		}
+		if buf.Len() > 0 {
+			buf.WriteString(" ")
+		}
+		buf.WriteString(block)
+		//判断是否有强语义结束
+		if lookLikeSentenceEnd(block) {
+			flush()
+		}
+	}
+	flush()
+	//去重
+	return deduplicateParents(parents)
+}
+
+func (s *service) processHtml(docs []*schema.Document, doc *model.Document, parentModels []*model.DocumentChunk, kb *model.KnowledgeBase, childSchemaDocs []*schema.Document) ([]*model.DocumentChunk, []*schema.Document) {
+	if len(docs) == 0 {
+		return parentModels, childSchemaDocs
+	}
+	htmlDoc := docs[0]
+	htmlContent := htmlDoc.Content
+	if htmlContent == "" {
+		return parentModels, childSchemaDocs
+	}
+	//解析html
+	dom, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		logs.Errorf("new document from reader error: %v", err)
+		return parentModels, childSchemaDocs
+	}
+	webTitle := htmlDoc.MetaData[html.MetaKeyTitle].(string)
+	if webTitle == "" {
+		webTitle = doc.Name
+	}
+	type Block struct {
+		Tag    string
+		Text   string
+		IsCode bool
+	}
+	var blocks []Block
+	isHeading := func(tag string) bool {
+		return regexp.MustCompile(`^h[1-6]$`).MatchString(tag)
+	}
+	isAtom := func(tag string) bool {
+		switch tag {
+		case "code", "pre", "blockquote", "ul", "ol", "li", "table":
+			return true
+		}
+		return false
+	}
+	body := dom.Find("body")
+	if body.Length() == 0 {
+		body = dom.Selection
+	}
+	processed := make(map[*html2.Node]bool)
+	body.Find("*").Each(func(i int, s *goquery.Selection) {
+		node := s.Get(0)
+		if processed[node] {
+			return
+		}
+		tag := strings.ToLower(goquery.NodeName(s))
+		//标题
+		if isHeading(tag) {
+			blocks = append(blocks, Block{
+				Tag:  tag,
+				Text: strings.TrimSpace(s.Text()),
+			})
+			processed[node] = true
+			return
+		}
+		//原子块
+		if isAtom(tag) {
+			txt := strings.TrimSpace(s.Text())
+			if txt != "" {
+				blocks = append(blocks, Block{
+					Tag:    tag,
+					Text:   txt,
+					IsCode: tag == "code" || tag == "pre",
+				})
+			}
+			s.Find("*").Each(func(i int, sub *goquery.Selection) {
+				processed[sub.Get(0)] = true
+			})
+			processed[node] = true
+			return
+		}
+		//普通文本
+		if s.Children().Length() == 0 {
+			txt := strings.TrimSpace(s.Text())
+			if txt != "" {
+				blocks = append(blocks, Block{
+					Tag:  "p",
+					Text: txt,
+				})
+			}
+			processed[node] = true
+		}
+	})
+	//语义聚合
+	var (
+		h1, h2, h3  string
+		buf         strings.Builder
+		parentIndex = 0
+	)
+	flush := func() {
+		content := strings.TrimSpace(buf.String())
+		if content == "" {
+			return
+		}
+		parentId := uuid.New()
+		breadcrumb := fmt.Sprintf("【网页:%s】", webTitle)
+		if h1 != "" {
+			breadcrumb += " > " + h1
+		}
+		if h2 != "" {
+			breadcrumb += " > " + h2
+		}
+		if h3 != "" {
+			breadcrumb += " > " + h3
+		}
+		fullContent := breadcrumb + "\n" + content
+		parentModel := &model.DocumentChunk{
+			BaseModel: model.BaseModel{
+				ID: parentId,
+			},
+			Content:         fullContent,
+			DocumentID:      doc.ID,
+			KnowledgeBaseID: kb.ID,
+			ChunkIndex:      parentIndex,
+			MetaInfo: map[string]interface{}{
+				"h1": h1,
+				"h2": h2,
+				"h3": h3,
+			},
+			TokenCount: utils.GetTokenCount(fullContent),
+			Status:     model.ChunkStatusEmbedded,
+		}
+		parentModels = append(parentModels, parentModel)
+		//子分段切分
+		pathPrefix := breadcrumb + "\n"
+		childTexts := utils.SplitByWindow(content, 400, 50)
+		for k, childText := range childTexts {
+			childSchemaDoc := s.buildChildSchemaDoc(parentId, doc, kb, pathPrefix+childText, parentIndex, k, 0, nil)
+			childSchemaDocs = append(childSchemaDocs, childSchemaDoc)
+		}
+		buf.Reset()
+		parentIndex++
+	}
+	for _, b := range blocks {
+		switch b.Tag {
+		case "h1":
+			flush()
+			h1, h2, h3 = b.Text, "", ""
+		case "h2":
+			flush()
+			h2, h3 = b.Text, ""
+		case "h3":
+			buf.WriteString("\n### ")
+			buf.WriteString(b.Text)
+			buf.WriteString("\n")
+		default:
+			if b.IsCode {
+				buf.WriteString("\n```\n")
+				buf.WriteString(b.Text)
+				buf.WriteString("\n```\n")
+			} else {
+				buf.WriteString(b.Text)
+				buf.WriteString("\n")
+			}
+		}
+		//父块的理想长度
+		if buf.Len() >= 1200 {
+			flush()
+		}
+	}
+	flush()
+	return parentModels, childSchemaDocs
+}
+
+func (s *service) processEpub(chapters []*schema.Document, doc *model.Document, parentModels []*model.DocumentChunk, kb *model.KnowledgeBase, childSchemaDocs []*schema.Document) ([]*model.DocumentChunk, []*schema.Document) {
+	if len(chapters) == 0 {
+		return parentModels, childSchemaDocs
+	}
+	for i, chapter := range chapters {
+		//提取元数据
+		bookTitle := chapter.MetaData["book_title"].(string)
+		if bookTitle == "" {
+			bookTitle = doc.Name
+		}
+		//章节
+		chapterTitle := chapter.MetaData["chapter"].(string)
+		if chapterTitle == "" {
+			chapterTitle = "未定义章节"
+		}
+		breadcrumb := fmt.Sprintf("【书名:%s】 > 【章节:%s】", bookTitle, chapterTitle)
+		//章节的内容 可能很多，这里正常是需要进行一下切分，也可以不切分
+		//如果要切分 尽量切的大一些，一般比如小说 字数大概在2000-3000字
+		//parentTexts := utils.SplitByWindow(chapter.Content, 2500, 300)
+		fullParentContent := breadcrumb + "\n" + chapter.Content
+		parentId := uuid.New()
+		//解析复杂标题，比如卷名，章节号 卷号 标题等等
+		parsed := utils.ParseComplexTitle(chapterTitle)
+		parentModel := &model.DocumentChunk{
+			BaseModel: model.BaseModel{
+				ID: parentId,
+			},
+			Content:         fullParentContent,
+			DocumentID:      doc.ID,
+			KnowledgeBaseID: kb.ID,
+			ChunkIndex:      i,
+			MetaInfo: map[string]interface{}{
+				"chapter_num": parsed.ChapterNum,
+				"volume_num":  parsed.VolumeNum,
+				"volume_name": parsed.VolumeName,
+				"raw_title":   parsed.RawTitle,
+				"full_title":  chapterTitle,
+			},
+			TokenCount: utils.GetTokenCount(fullParentContent),
+			Status:     model.ChunkStatusEmbedded,
+		}
+		parentModels = append(parentModels, parentModel)
+		//生成child
+		childTexts := utils.SplitByWindow(chapter.Content, 400, 50)
+		for k, childText := range childTexts {
+			childSchemaDoc := s.buildChildSchemaDoc(parentId, doc, kb, breadcrumb+"\n"+childText, i, k, 0, parentModel.MetaInfo)
+			childSchemaDocs = append(childSchemaDocs, childSchemaDoc)
+		}
+	}
+	return parentModels, childSchemaDocs
+}
+
+type QueryIntent struct {
+	Keywords   string `json:"keywords"`
+	VolumeNum  int    `json:"volume_num"`  //卷号 0 表示未指定
+	ChapterNum int    `json:"chapter_num"` //章节号 0 表示未指定
+	DocName    string `json:"doc_name"`
+}
+
+func (s *service) parseQueryIntent(ctx context.Context, kb *model.KnowledgeBase, query string) (*QueryIntent, error) {
+	//构建提示词
+	prompt := `你是一个结构化数据提取助手。请从用户的提问中提取查询关键词、卷号和章节号。
+规则：
+1. volume_num: 提取"卷"的信息（如：第四卷、卷4）。若未提取到则返回 0。
+2. chapter_num: 提取"章/回/节"的信息（如：第500章、五百回）。若未提取到则返回 0。
+3. keywords: 除去卷和章信息后的核心查询关键词。
+4. 所有的中文数字（如：第四卷、第五百回）必须转换为阿拉伯数字整数（4, 500）。
+5. 必须仅返回 JSON 格式数据。
+
+示例：
+问题："凡人修仙传第四卷风起海外第五百章讲了什么？"
+输出：{"keywords": "讲了什么", "volume_num": 4, "chapter_num": 500}
+
+问题："斗罗大陆第10章唐三的魂环"
+输出：{"keywords": "唐三的魂环", "volume_num": 0, "chapter_num": 10}`
+	//调用知识库关联的对话模型 进行解析
+	chatModel, err := s.getChatModel(kb.ChatModelName, kb.ChatModelProvider)
+	if err != nil {
+		logs.Errorf("getChatModel 获取对话模型失败: %v", err)
+		return nil, err
+	}
+	message, err := chatModel.Generate(ctx, []*schema.Message{
+		{
+			Role:    schema.System,
+			Content: prompt,
+		},
+		{
+			Role:    schema.User,
+			Content: query,
+		},
+	})
+	if err != nil {
+		logs.Errorf("generate 模型生成失败: %v", err)
+		return nil, err
+	}
+	//我们对返回的内容做一些特殊处理，防止返回的内容有md的代码块标签
+	rawJSON := message.Content
+	rawJSON = strings.TrimPrefix(rawJSON, "```json")
+	rawJSON = strings.TrimPrefix(rawJSON, "```")
+	rawJSON = strings.TrimSuffix(rawJSON, "```")
+	rawJSON = strings.TrimSpace(rawJSON)
+	var intent QueryIntent
+	if err := json.Unmarshal([]byte(rawJSON), &intent); err != nil {
+		logs.Errorf("json.Unmarshal 解析失败: %v", err)
+		//兜底 降级处理 返回默认
+		return &QueryIntent{Keywords: query, VolumeNum: 0, ChapterNum: 0}, nil
+	}
+	//如果关键词为空 返回原有的内容
+	if intent.Keywords == "" {
+		intent.Keywords = query
+	}
+	return &intent, nil
+}
+
+func (s *service) getChatModel(modelName string, modelProvider string) (aiModel.ToolCallingChatModel, error) {
+	ctx := context.Background()
+	var chatModel aiModel.ToolCallingChatModel
+	var err error
+	//获取提供商以及模型信息
+	chatProviderConfig, err := s.getProviderConfig(ctx, model.LLMTypeChat, modelProvider, modelName)
+	if err != nil {
+		logs.Errorf("获取模型配置失败: %v", err)
+		return nil, err
+	}
+	if chatProviderConfig == nil {
+		return nil, biz.ErrProviderConfigNotFound
+	}
+	if chatProviderConfig.Provider == model.OllamaProvider {
+		chatModel, err = ollama.NewChatModel(ctx, &ollama.ChatModelConfig{
+			Model:   modelName,
+			BaseURL: chatProviderConfig.APIBase,
+		})
+	} else if chatProviderConfig.Provider == model.QwenProvider {
+		chatModel, err = qwen.NewChatModel(ctx, &qwen.ChatModelConfig{
+			Model:   modelName,
+			BaseURL: chatProviderConfig.APIBase,
+			APIKey:  chatProviderConfig.APIKey,
+		})
+	} else {
+		chatModel, err = openai.NewChatModel(ctx, &openai.ChatModelConfig{
+			Model:   modelName,
+			BaseURL: chatProviderConfig.APIBase,
+			APIKey:  chatProviderConfig.APIKey,
+		})
+	}
+	return chatModel, err
+}
+
+func (s *service) getProviderConfig(ctx context.Context, llmType model.LLMType, provider string, name string) (*model.ProviderConfig, error) {
+	trigger, err := event.Trigger("getProviderConfig", &shared.GetProviderConfigsRequest{
+		Provider:  provider,
+		ModelName: name,
+		LLMType:   llmType,
+	})
+	if err != nil {
+		logs.Errorf("触发getProviderConfig事件失败: %v", err)
+		return nil, errs.DBError
+	}
+	result := trigger.(*model.ProviderConfig)
+	return result, nil
+}
+
+func deduplicateParents(parents []string) []string {
+	seen := make(map[string]struct{})
+	var result []string
+	for _, p := range parents {
+		key := strings.TrimSpace(p)
+		if len(key) < 20 {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, p)
+	}
+	return result
+}
+
+func lookLikeSentenceEnd(block string) bool {
+	return regexp.MustCompile(`[。！？.!?]$`).MatchString(block)
+}
+
+func looksLikeCode(block string) bool {
+	return strings.Contains(block, "package ") ||
+		strings.Contains(block, "func ") ||
+		strings.Contains(block, "class ") ||
+		strings.Contains(block, "def ") ||
+		strings.Contains(block, "import ") ||
+		strings.Contains(block, "from ") ||
+		strings.Contains(block, "using ") ||
+		strings.Contains(block, "namespace ") ||
+		strings.Contains(block, "struct ") ||
+		strings.Contains(block, "interface ") ||
+		strings.Contains(block, "enum ") ||
+		strings.Contains(block, "{ ") ||
+		strings.Contains(block, "}")
 }
 func newService() *service {
 	client, err := elasticsearch.NewClient(elasticsearch.Config{

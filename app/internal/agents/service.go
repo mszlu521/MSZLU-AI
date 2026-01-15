@@ -548,7 +548,7 @@ func (s *service) buildRagContext(ctx context.Context, dataChan chan string, mes
 			for i, v := range allResult {
 				//为了防止内容过长，这里只取前几位的结果
 				//这个数字根据实际进行调整
-				if i >= 3 {
+				if i >= 1 {
 					break
 				}
 				contextBuilder.WriteString(fmt.Sprintf("%d.  %s \n", i+1, v.Content))
