@@ -196,6 +196,10 @@ func (h *Handler) SearchKnowledgeBase(c *gin.Context) {
 	res.Success(c, resp)
 }
 
+func (h *Handler) Close() error {
+	return h.service.Close()
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

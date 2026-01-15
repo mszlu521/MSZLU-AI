@@ -6,6 +6,7 @@ import (
 
 	"github.com/mszlu521/thunder/config"
 	"github.com/mszlu521/thunder/database"
+	"github.com/mszlu521/thunder/logs"
 	"github.com/mszlu521/thunder/server"
 	"github.com/mszlu521/thunder/tools/jwt"
 )
@@ -19,7 +20,7 @@ func Init(s *server.Server, conf *config.Config) {
 	jwt.Init(conf.Jwt.GetSecret())
 	//注册系统工具
 	registerTools()
-	s.RegisterRouters(
+	closeFuncs := s.RegisterRouters(
 		&router.Event{},
 		&router.AuthRouter{},
 		&router.SubscriptionRouter{},
@@ -28,6 +29,15 @@ func Init(s *server.Server, conf *config.Config) {
 		&router.ToolRouter{},
 		&router.KnowledgeBaseRouter{},
 	)
+	s.Close = func() {
+		for _, f := range closeFuncs {
+			err := f()
+			if err != nil {
+				logs.Error("close func error", "error", err)
+				return
+			}
+		}
+	}
 }
 
 func registerTools() {

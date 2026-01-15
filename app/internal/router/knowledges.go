@@ -7,12 +7,14 @@ import (
 )
 
 type KnowledgeBaseRouter struct {
+	handler *knowledges.Handler
 }
 
 func (u *KnowledgeBaseRouter) Register(engine *gin.Engine) {
 	knowledgesGroup := engine.Group("/api/v1/knowledge")
 	{
 		knowledgesHandler := knowledges.NewHandler()
+		u.handler = knowledgesHandler
 		knowledgesGroup.POST("/", knowledgesHandler.CreateKnowledgeBase)
 		knowledgesGroup.POST("/list", knowledgesHandler.ListKnowledgeBases)
 		knowledgesGroup.GET("/:id", knowledgesHandler.GetKnowledgeBase)
@@ -23,4 +25,11 @@ func (u *KnowledgeBaseRouter) Register(engine *gin.Engine) {
 		knowledgesGroup.POST("/:id/documents", knowledgesHandler.UploadDocuments)
 		knowledgesGroup.DELETE("/:id/documents/:documentId", knowledgesHandler.DeleteDocuments)
 	}
+}
+
+func (u *KnowledgeBaseRouter) Close() error {
+	if u.handler != nil {
+		return u.handler.Close()
+	}
+	return nil
 }

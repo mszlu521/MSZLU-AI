@@ -1,9 +1,9 @@
-go 1.24.6
+go 1.24.11
 
 use (
 	app
 	common
 	core
-	model
 	mcp-server
+	model
 )

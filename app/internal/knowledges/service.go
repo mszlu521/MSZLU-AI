@@ -9,6 +9,7 @@ import (
 	"context"
 	"core/ai/kbs"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -34,6 +35,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/google/uuid"
+	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/mszlu521/thunder/ai/einos"
 	"github.com/mszlu521/thunder/database"
 	"github.com/mszlu521/thunder/einos/components/document/parser/epub"
@@ -45,8 +47,9 @@ import (
 )
 
 type service struct {
-	repo     repository
-	esClient *elasticsearch.Client
+	repo         repository
+	esClient     *elasticsearch.Client
+	milvusClient client.Client
 }
 
 func (s *service) createKnowledgeBase(ctx context.Context, userId uuid.UUID, req createKnowledgeBaseReq) (any, error) {
@@ -547,6 +550,9 @@ func (s *service) deleteDocuments(ctx context.Context, userId uuid.UUID, kbId uu
 				return err
 			}
 		}
+		if knowledgeBase.StorageType == model.StorageTypeMilvus {
+			err = s.deleteMilvusIndex(ctx, kbId, documentId)
+		}
 		return nil
 	})
 	if err != nil {
@@ -592,7 +598,9 @@ func (s *service) deleteEsIndex(ctx context.Context, kbId uuid.UUID, documentId 
 }
 
 func (s *service) buildIndex(kbId uuid.UUID) string {
-	return fmt.Sprintf("kb_%s", kbId.String())
+	sprintf := fmt.Sprintf("kb_%s", kbId.String())
+	sprintf = strings.ReplaceAll(sprintf, "-", "_")
+	return sprintf
 }
 
 const (
@@ -631,7 +639,8 @@ func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbI
 		return nil, biz.ErrEmbeddingConfigNotFound
 	}
 	//这里正常需要根据知识库中的存储类型判断，因为前端没有修改的地方 我们就以写死的方式进行替换不同的存储
-	store, err := kbs.NewESVectorStore(ctx, s.esClient, index, embedder)
+	//store, err := kbs.NewESVectorStore(ctx, s.esClient, index, embedder)
+	store, err := kbs.NewMilvusVectorStore(ctx, s.milvusClient, index, embedder)
 	if err != nil {
 		logs.Errorf("new vector store error: %v", err)
 		return nil, err
@@ -644,6 +653,10 @@ func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, kbI
 		filter["volume_num"] = intent.VolumeNum
 	}
 	childDocs, err := store.Search(ctx, intent.Keywords, 10, filter)
+	if err != nil {
+		logs.Errorf("search error: %v", err)
+		return nil, err
+	}
 	//我们需要查找匹配的子分段文档对应的父分段内容
 	parentIdMap := make(map[string]float64) //doc_chunk_id:score
 	var orderedParentIds []string
@@ -795,7 +808,8 @@ func (s *service) saveToStores(ctx context.Context, kb *model.KnowledgeBase, par
 		logs.Errorf("get embedding config error: %v", err)
 		return biz.ErrEmbeddingConfigNotFound
 	}
-	store, err := kbs.NewESVectorStore(ctx, s.esClient, s.buildIndex(kb.ID), embedder)
+	//store, err := kbs.NewESVectorStore(ctx, s.esClient, s.buildIndex(kb.ID), embedder)
+	store, err := kbs.NewMilvusVectorStore(ctx, s.milvusClient, s.buildIndex(kb.ID), embedder)
 	if err != nil {
 		logs.Errorf("new indexer error: %v", err)
 		return err
@@ -1271,6 +1285,20 @@ func (s *service) getProviderConfig(ctx context.Context, llmType model.LLMType, 
 	return result, nil
 }
 
+func (s *service) deleteMilvusIndex(ctx context.Context, kbId uuid.UUID, docId uuid.UUID) error {
+	index := s.buildIndex(kbId)
+	expr := fmt.Sprintf("doc_id=='%s'", docId.String())
+	err := s.milvusClient.Delete(ctx, index, "", expr)
+	if err != nil {
+		if errors.Is(err, client.ErrCollectionNotExists{}) {
+			return nil
+		}
+		logs.Errorf("删除milvus索引失败: %v", err)
+		return err
+	}
+	return nil
+}
+
 func deduplicateParents(parents []string) []string {
 	seen := make(map[string]struct{})
 	var result []string
@@ -1308,7 +1336,7 @@ func looksLikeCode(block string) bool {
 		strings.Contains(block, "}")
 }
 func newService() *service {
-	client, err := elasticsearch.NewClient(elasticsearch.Config{
+	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{
 			"http://localhost:9200",
 		},
@@ -1318,8 +1346,23 @@ func newService() *service {
 	if err != nil {
 		panic(err)
 	}
-	return &service{
-		repo:     newModels(database.GetPostgresDB().GormDB),
-		esClient: client,
+	milvusClient, err := client.NewClient(context.Background(), client.Config{
+		Address: "localhost:19530",
+		DBName:  "faber_ai",
+	})
+	if err != nil {
+		panic(err)
 	}
+	return &service{
+		repo:         newModels(database.GetPostgresDB().GormDB),
+		esClient:     esClient,
+		milvusClient: milvusClient,
+	}
+}
+
+func (s *service) Close() error {
+	if s.milvusClient != nil {
+		return s.milvusClient.Close()
+	}
+	return nil
 }
