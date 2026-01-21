@@ -34,3 +34,8 @@ var (
 	ErrEmbedding               = errs.NewError(40005, "Embedding错误")
 	ErrRetriever               = errs.NewError(40006, "Retriever错误")
 )
+
+var (
+	ErrAgentCardGetFailed = errs.NewError(50001, "获取AgentCard失败")
+	ErrAgentCardExisted   = errs.NewError(50002, "AgentCard已存在")
+)

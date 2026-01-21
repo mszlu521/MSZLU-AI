@@ -14,6 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino-ext/a2a/client"
+	"github.com/cloudwego/eino-ext/a2a/extension/eino"
+	"github.com/cloudwego/eino-ext/a2a/transport/jsonrpc"
 	"github.com/cloudwego/eino-ext/components/model/ollama"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino-ext/components/model/qwen"
@@ -162,12 +165,37 @@ func (s *service) agentMessage(ctx context.Context, userID uuid.UUID, req AgentM
 			s.sendError(ctx, errChan, err)
 			return
 		}
+		//构建子Agent
+		var subAgents []adk.Agent
+		for _, v := range agent.Agents {
+			t, err := jsonrpc.NewTransport(ctx, &jsonrpc.ClientConfig{
+				BaseURL:     v.URL,
+				HandlerPath: v.HandlerPath,
+			})
+			if err != nil {
+				logs.Errorf("构建子智能体失败: %v", err)
+				continue
+			}
+			aClient, err := client.NewA2AClient(ctx, &client.Config{
+				Transport: t,
+			})
+			if err != nil {
+				logs.Errorf("构建子智能体失败: %v", err)
+				continue
+			}
+			newAgent, err := eino.NewAgent(ctx, eino.AgentConfig{
+				Client: aClient,
+			})
+			if err != nil {
+				logs.Errorf("构建子智能体失败: %v", err)
+				continue
+			}
+			subAgents = append(subAgents, newAgent)
+		}
 		//构建supervisoragent
 		supervisorAgent, err := supervisor.New(ctx, &supervisor.Config{
 			Supervisor: mainAgent,
-			SubAgents:  []adk.Agent{
-				//这里可以添加多个子智能体
-			},
+			SubAgents:  subAgents,
 		})
 		if err != nil {
 			logs.Errorf("构建supervisorAgent失败: %v", err)
@@ -267,7 +295,7 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 				"role":       agent.SystemPrompt,
 				"ragContext": ragContext,
 				"toolsInfo":  s.formatToolsInfo(allTools),
-				"agentsInfo": "",
+				"agentsInfo": s.formatAgentsDescription(agent.Agents),
 			})
 			if err2 != nil {
 				logs.Errorf("格式化模板失败: %v", err2)
@@ -579,6 +607,57 @@ func (s *service) searchKnowledgeBase(ctx context.Context, userId uuid.UUID, mes
 	}
 	response := trigger.(*shared.SearchKnowledgeBaseResponse)
 	return response.Results, nil
+}
+
+func (s *service) addAgentAgent(ctx context.Context, userId uuid.UUID, request AgentMarketRequest) (any, error) {
+	agent, err := s.repo.getAgent(ctx, userId, request.AgentId)
+	if err != nil {
+		logs.Errorf("addAgentAgent 获取agent失败: %v", err)
+		return nil, errs.DBError
+	}
+	if agent == nil {
+		return nil, biz.AgentNotFound
+	}
+	for _, v := range request.AgentMarketIds {
+		aa, err := s.repo.getAgentAgent(ctx, request.AgentId, v)
+		if err != nil {
+			logs.Errorf("addAgentAgent 获取agent失败: %v", err)
+			return nil, errs.DBError
+		}
+		if aa != nil {
+			continue
+		}
+		aa = &model.AgentAgent{
+			AgentId:       request.AgentId,
+			AgentMarketId: v,
+		}
+		err = s.repo.createAgentAgent(ctx, aa)
+		if err != nil {
+			logs.Errorf("addAgentAgent 创建关联关系失败: %v", err)
+			return nil, errs.DBError
+		}
+
+	}
+	return nil, nil
+}
+
+func (s *service) deleteAgentAgent(ctx context.Context, userID uuid.UUID, request DeleteAgentMarketRequest) (any, error) {
+	err := s.repo.deleteAgentAgent(ctx, request.AgentId, request.AgentMarketId)
+	if err != nil {
+		logs.Errorf("deleteAgentAgent 删除关联关系失败: %v", err)
+		return nil, errs.DBError
+	}
+	return nil, nil
+}
+
+func (s *service) formatAgentsDescription(agents []*model.AgentMarket) string {
+	var builder strings.Builder
+	builder.WriteString("【 可调用的智能体列表 】\n")
+	for _, v := range agents {
+		builder.WriteString(fmt.Sprintf("- name: %s \n", v.Name))
+		builder.WriteString(fmt.Sprintf("- desc: %s \n", v.Description))
+	}
+	return builder.String()
 }
 
 func newService() *service {

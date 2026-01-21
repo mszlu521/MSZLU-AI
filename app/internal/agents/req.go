@@ -50,3 +50,13 @@ type ToolItem struct {
 type addAgentKnowledgeBaseReq struct {
 	KnowledgeBaseID uuid.UUID `json:"kb_id"`
 }
+
+type AgentMarketRequest struct {
+	AgentMarketIds []uuid.UUID `json:"agentMarketIds"`
+	AgentId        uuid.UUID   `json:"agentId"`
+}
+
+type DeleteAgentMarketRequest struct {
+	AgentMarketId uuid.UUID `json:"agentMarketId"`
+	AgentId       uuid.UUID `json:"agentId"`
+}

@@ -1,0 +1,6 @@
+app:
+  name: "a2a server"
+server:
+  mode: "debug" # gin的模式: debug, release, test
+  host: "127.0.0.1" # 监听地址和端口
+  port: 8777

@@ -58,6 +58,7 @@ type Agent struct {
 
 	Tools          []*Tool          `json:"tools" gorm:"many2many:agent_tools"`
 	KnowledgeBases []*KnowledgeBase `json:"knowledgeBases" gorm:"many2many:agent_knowledge_bases"`
+	Agents         []*AgentMarket   `json:"agentMarkets" gorm:"many2many:agent_agents"`
 }
 
 // TableName 返回表名
@@ -192,4 +193,14 @@ type AgentKnowledgeBase struct {
 // TableName 返回表名
 func (AgentKnowledgeBase) TableName() string {
 	return "agent_knowledge_bases"
+}
+
+type AgentAgent struct {
+	AgentId       uuid.UUID   `json:"agentId"`
+	AgentMarketId uuid.UUID   `json:"agentMarketId" `
+	AgentMarket   AgentMarket `json:"agentMarket" gorm:"foreignKey:agent_market_id"`
+}
+
+func (AgentAgent) TableName() string {
+	return "agent_agents"
 }

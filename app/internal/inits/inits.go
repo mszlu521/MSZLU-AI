@@ -28,6 +28,7 @@ func Init(s *server.Server, conf *config.Config) {
 		&router.LLMRouter{},
 		&router.ToolRouter{},
 		&router.KnowledgeBaseRouter{},
+		&router.A2ARouter{},
 	)
 	s.Close = func() {
 		for _, f := range closeFuncs {

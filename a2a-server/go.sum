@@ -1,0 +1,4 @@
+github.com/cloudwego/eino-ext/a2a v0.0.1-alpha.9 h1:meszj2WpTZsAQRaTQ2O9AwNzuC+E6uW6P0lVWVm8LLQ=
+github.com/cloudwego/eino-ext/a2a v0.0.1-alpha.9/go.mod h1:GeK30901p77ebI5wxrk1Inmzhlm0Dbdbm6YEMqOBBsY=
+github.com/cloudwego/hertz v0.10.3 h1:NFcQAjouVJsod79XPLC/PaFfHgjMTYbiErmW+vGBi8A=
+github.com/cloudwego/hertz v0.10.3/go.mod h1:W5dUFXZPZkyfjMMo3EQrMQbofuvTsctM9IxmhbkuT18=

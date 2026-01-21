@@ -6,4 +6,5 @@ use (
 	core
 	mcp-server
 	model
+	a2a-server
 )

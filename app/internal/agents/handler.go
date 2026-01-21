@@ -237,6 +237,40 @@ func (h *Handler) DeleteAgentKnowledgeBase(c *gin.Context) {
 	res.Success(c, resp)
 }
 
+func (h *Handler) AddAgentAgent(c *gin.Context) {
+	var agentRequest AgentMarketRequest
+	if err := req.JsonParam(c, &agentRequest); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.addAgentAgent(c.Request.Context(), userID, agentRequest)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) DeleteAgentAgent(c *gin.Context) {
+	var agentRequest DeleteAgentMarketRequest
+	if err := req.JsonParam(c, &agentRequest); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.deleteAgentAgent(c.Request.Context(), userID, agentRequest)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),
