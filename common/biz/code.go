@@ -39,3 +39,7 @@ var (
 	ErrAgentCardGetFailed = errs.NewError(50001, "获取AgentCard失败")
 	ErrAgentCardExisted   = errs.NewError(50002, "AgentCard已存在")
 )
+
+var (
+	ErrWorkflowNotFound = errs.NewError(60001, "工作流不存在")
+)

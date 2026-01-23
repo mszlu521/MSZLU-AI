@@ -59,6 +59,7 @@ type Agent struct {
 	Tools          []*Tool          `json:"tools" gorm:"many2many:agent_tools"`
 	KnowledgeBases []*KnowledgeBase `json:"knowledgeBases" gorm:"many2many:agent_knowledge_bases"`
 	Agents         []*AgentMarket   `json:"agentMarkets" gorm:"many2many:agent_agents"`
+	Workflows      []*Workflow      `json:"workflows" gorm:"many2many:agent_workflows"`
 }
 
 // TableName 返回表名
@@ -203,4 +204,22 @@ type AgentAgent struct {
 
 func (AgentAgent) TableName() string {
 	return "agent_agents"
+}
+
+type AgentWorkflow struct {
+	AgentID    uuid.UUID `json:"agent_id" gorm:"column:agent_id;type:uuid;not null;primaryKey;index:idx_agent_id_status"`
+	WorkflowID uuid.UUID `json:"workflow_id" gorm:"column:workflow_id;type:uuid;not null;primaryKey;index:idx_workflow_id"`
+
+	IsDefault        bool      `json:"is_default" gorm:"column:is_default;type:boolean;not null;default:false"`
+	TriggerCondition string    `json:"trigger_condition" gorm:"column:trigger_condition;type:varchar(255)"`
+	Priority         int       `json:"priority" gorm:"column:priority;type:int;not null;default:0"`
+	Status           string    `json:"status" gorm:"column:status;type:varchar(20);not null;default:'enabled'"`
+	CreatedAt        time.Time `json:"created_at" gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP"`
+
+	// 关联关系
+	Workflow *Workflow `json:"workflow" gorm:"foreignKey:WorkflowID"`
+}
+
+func (AgentWorkflow) TableName() string {
+	return "agent_workflows"
 }
