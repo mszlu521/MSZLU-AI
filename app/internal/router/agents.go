@@ -23,5 +23,7 @@ func (u *AgentRouter) Register(engine *gin.Engine) {
 		agentsGroup.DELETE("/:id/knowledge-bases/:kbId", agentsHandler.DeleteAgentKnowledgeBase)
 		agentsGroup.POST("/market/add", agentsHandler.AddAgentAgent)
 		agentsGroup.POST("/market/delete", agentsHandler.DeleteAgentAgent)
+		agentsGroup.POST("/:id/workflows", agentsHandler.AddWorkflowToAgent)
+		agentsGroup.DELETE("/:id/workflows/:workflowId", agentsHandler.DeleteWorkflowFromAgent)
 	}
 }

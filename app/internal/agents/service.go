@@ -281,6 +281,10 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, messag
 	var allTools []tool.BaseTool
 	//这里需要把关联的工具添加进去
 	allTools = append(allTools, s.buildTools(agent)...)
+	for _, v := range agent.Workflows {
+		workflowTool := ai.NewWorkflowTool(v)
+		allTools = append(allTools, workflowTool)
+	}
 	//在这里将关联的知识库内容查询出来
 	ragContext := s.buildRagContext(ctx, dataChan, message, agent)
 	modelAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
@@ -658,6 +662,48 @@ func (s *service) formatAgentsDescription(agents []*model.AgentMarket) string {
 		builder.WriteString(fmt.Sprintf("- desc: %s \n", v.Description))
 	}
 	return builder.String()
+}
+
+func (s *service) addWorkflowToAgent(ctx context.Context, userID uuid.UUID, agentId uuid.UUID, reqs addWorkflowToAgentReq) (any, error) {
+	agent, err := s.repo.getAgent(ctx, userID, agentId)
+	if err != nil {
+		logs.Errorf("addWorkflowToAgent 获取agent失败: %v", err)
+		return nil, errs.DBError
+	}
+	if agent == nil {
+		return nil, biz.AgentNotFound
+	}
+	agentWorkflow, err := s.repo.getAgentWorkflow(ctx, agentId, reqs.WorkflowID)
+	if err != nil {
+		logs.Errorf("addWorkflowToAgent 获取agent_workflow失败: %v", err)
+		return nil, errs.DBError
+	}
+	if agentWorkflow != nil {
+		return nil, nil
+	}
+	agentWorkflow = &model.AgentWorkflow{
+		AgentID:    agentId,
+		WorkflowID: reqs.WorkflowID,
+		IsDefault:  reqs.IsDefault,
+		Priority:   reqs.Priority,
+		Status:     reqs.Status,
+		CreatedAt:  time.Now(),
+	}
+	err = s.repo.createAgentWorkflow(ctx, agentWorkflow)
+	if err != nil {
+		logs.Errorf("addWorkflowToAgent 创建关联关系失败: %v", err)
+		return nil, errs.DBError
+	}
+	return nil, nil
+}
+
+func (s *service) deleteWorkflowFromAgent(ctx context.Context, agentId uuid.UUID, workflowId uuid.UUID) error {
+	err := s.repo.deleteAgentWorkflow(ctx, agentId, workflowId)
+	if err != nil {
+		logs.Errorf("deleteWorkflowFromAgent 删除关联关系失败: %v", err)
+		return errs.DBError
+	}
+	return nil
 }
 
 func newService() *service {

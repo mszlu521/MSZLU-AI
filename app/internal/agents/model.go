@@ -13,6 +13,23 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) deleteAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ? and workflow_id = ?", agentId, workflowId).Delete(&model.AgentWorkflow{}).Error
+}
+
+func (m *models) getAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowID uuid.UUID) (*model.AgentWorkflow, error) {
+	var wf model.AgentWorkflow
+	err := m.db.WithContext(ctx).Where("agent_id = ? and workflow_id = ?", agentId, workflowID).First(&wf).Error
+	if gorms.IsRecordNotFoundError(err) {
+		return nil, nil
+	}
+	return &wf, err
+}
+
+func (m *models) createAgentWorkflow(ctx context.Context, workflow *model.AgentWorkflow) error {
+	return m.db.WithContext(ctx).Create(workflow).Error
+}
+
 func (m *models) deleteAgentAgent(ctx context.Context, agentId uuid.UUID, agentMarketId uuid.UUID) error {
 	return m.db.WithContext(ctx).Where("agent_id = ? and agent_market_id = ?", agentId, agentMarketId).Delete(&model.AgentAgent{}).Error
 }
@@ -65,6 +82,7 @@ func (m *models) getAgent(ctx context.Context, userID uuid.UUID, id uuid.UUID) (
 		Preload("Tools").
 		Preload("KnowledgeBases").
 		Preload("Agents").
+		Preload("Workflows").
 		Where("id = ? and creator_id = ? ", id, userID).First(&agent).Error
 	if gorms.IsRecordNotFoundError(err) {
 		return nil, nil

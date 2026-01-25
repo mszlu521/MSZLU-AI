@@ -60,3 +60,10 @@ type DeleteAgentMarketRequest struct {
 	AgentMarketId uuid.UUID `json:"agentMarketId"`
 	AgentId       uuid.UUID `json:"agentId"`
 }
+
+type addWorkflowToAgentReq struct {
+	WorkflowID uuid.UUID `json:"workflow_id"`
+	Status     string    `json:"status"`
+	Priority   int       `json:"priority"`
+	IsDefault  bool      `json:"is_default"`
+}

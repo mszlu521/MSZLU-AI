@@ -271,6 +271,44 @@ func (h *Handler) DeleteAgentAgent(c *gin.Context) {
 	res.Success(c, resp)
 }
 
+func (h *Handler) AddWorkflowToAgent(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var reqs addWorkflowToAgentReq
+	if err := req.JsonParam(c, &reqs); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.addWorkflowToAgent(c.Request.Context(), userID, agentId, reqs)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) DeleteWorkflowFromAgent(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var workflowId uuid.UUID
+	if err := req.Path(c, "workflowId", &workflowId); err != nil {
+		return
+	}
+	err := h.service.deleteWorkflowFromAgent(c.Request.Context(), agentId, workflowId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, nil)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

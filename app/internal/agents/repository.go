@@ -20,4 +20,7 @@ type repository interface {
 	getAgentAgent(ctx context.Context, agentId uuid.UUID, marketId uuid.UUID) (*model.AgentAgent, error)
 	createAgentAgent(ctx context.Context, agentAgent *model.AgentAgent) error
 	deleteAgentAgent(ctx context.Context, agentId uuid.UUID, agentMarketId uuid.UUID) error
+	getAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowID uuid.UUID) (*model.AgentWorkflow, error)
+	createAgentWorkflow(ctx context.Context, workflow *model.AgentWorkflow) error
+	deleteAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowId uuid.UUID) error
 }
