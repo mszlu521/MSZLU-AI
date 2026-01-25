@@ -29,3 +29,8 @@ type saveReq struct {
 	Data        *model.Graph `json:"data"`
 	Version     int          `json:"version"`
 }
+
+type executeReq struct {
+	WorkflowId uuid.UUID    `json:"workflowId"`
+	Data       *model.Graph `json:"data"`
+}

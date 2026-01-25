@@ -3,6 +3,7 @@ package workflows
 import (
 	"common/biz"
 	"context"
+	"core/ai"
 	"model"
 
 	"github.com/google/uuid"
@@ -140,6 +141,16 @@ func (s *service) saveWorkflow(ctx context.Context, userId uuid.UUID, sr *saveRe
 		return errs.DBError
 	}
 	return nil
+}
+
+func (s *service) execute(ctx context.Context, userId uuid.UUID, e *executeReq) (any, error) {
+	//执行工作流，我们需要开发一个工作流的执行器，用于执行工作流
+	result, err := ai.Executor.Execute(e.Data)
+	if err != nil {
+		logs.Errorf("execute workflow error: %v", err)
+		return nil, err
+	}
+	return result, nil
 }
 
 func newService() *service {

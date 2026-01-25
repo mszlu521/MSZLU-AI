@@ -43,3 +43,6 @@ var (
 var (
 	ErrWorkflowNotFound = errs.NewError(60001, "工作流不存在")
 )
+var (
+	ErrNodeTypeNotExisted = errs.NewError(70001, "节点类型不存在")
+)

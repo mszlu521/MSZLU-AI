@@ -2,6 +2,7 @@ package inits
 
 import (
 	"app/internal/router"
+	"core/ai"
 	"core/ai/tools"
 
 	"github.com/mszlu521/thunder/config"
@@ -20,6 +21,8 @@ func Init(s *server.Server, conf *config.Config) {
 	jwt.Init(conf.Jwt.GetSecret())
 	//注册系统工具
 	registerTools()
+	//初始化工作流执行器
+	ai.Init()
 	closeFuncs := s.RegisterRouters(
 		&router.Event{},
 		&router.AuthRouter{},
@@ -30,6 +33,7 @@ func Init(s *server.Server, conf *config.Config) {
 		&router.KnowledgeBaseRouter{},
 		&router.A2ARouter{},
 		&router.WorkflowRouter{},
+		&router.NodeRouter{},
 	)
 	s.Close = func() {
 		for _, f := range closeFuncs {

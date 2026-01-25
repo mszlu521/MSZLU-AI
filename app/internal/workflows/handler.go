@@ -1,8 +1,12 @@
 package workflows
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mszlu521/thunder/logs"
 	"github.com/mszlu521/thunder/req"
 	"github.com/mszlu521/thunder/res"
 )
@@ -111,6 +115,32 @@ func (h *Handler) SaveWorkflow(c *gin.Context) {
 		return
 	}
 	res.Success(c, nil)
+}
+
+func (h *Handler) Execute(c *gin.Context) {
+	rc := http.NewResponseController(c.Writer)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		//一般不会失败
+		logs.Warnf("SetWriteDeadline error: %v", err)
+	}
+
+	var reqs executeReq
+	if err := req.JsonParam(c, &reqs); err != nil {
+		return
+	}
+	userId, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.execute(c.Request.Context(), userId, &reqs)
+	if err != nil {
+		//这是执行工作流，我们返回一个特定的错误结果
+		errResult := make(map[string]any)
+		errResult["error"] = err.Error()
+		res.Success(c, errResult)
+		return
+	}
+	res.Success(c, resp)
 }
 
 func NewHandler() *Handler {

@@ -19,5 +19,6 @@ func (r *WorkflowRouter) Register(e *gin.Engine) {
 		group.GET("/:id", handler.GetWorkflow)
 		group.DELETE("/:id", handler.DeleteWorkflow)
 		group.POST("/save", handler.SaveWorkflow)
+		group.POST("/execute", handler.Execute)
 	}
 }
