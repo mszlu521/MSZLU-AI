@@ -17,6 +17,7 @@ func (u *AgentRouter) Register(engine *gin.Engine) {
 		agentsGroup.POST("/list", agentsHandler.ListAgents)
 		agentsGroup.GET("/:id", agentsHandler.GetAgent)
 		agentsGroup.PUT("/update", agentsHandler.UpdateAgent)
+		agentsGroup.DELETE("/:id", agentsHandler.DeleteAgent)
 		agentsGroup.POST("/chat", agentsHandler.AgentMessage)
 		agentsGroup.POST("/:id/tools/batch", agentsHandler.UpdateAgentTool)
 		agentsGroup.POST("/:id/knowledge-bases", agentsHandler.AddAgentKnowledgeBase)
@@ -25,5 +26,10 @@ func (u *AgentRouter) Register(engine *gin.Engine) {
 		agentsGroup.POST("/market/delete", agentsHandler.DeleteAgentAgent)
 		agentsGroup.POST("/:id/workflows", agentsHandler.AddWorkflowToAgent)
 		agentsGroup.DELETE("/:id/workflows/:workflowId", agentsHandler.DeleteWorkflowFromAgent)
+		//会话相关
+		agentsGroup.POST("/sessions", agentsHandler.CreateSession)
+		agentsGroup.GET("/sessions", agentsHandler.ListSessions)
+		agentsGroup.GET("/sessions/:sessionId/messages", agentsHandler.GetSessionMessages)
+		agentsGroup.DELETE("/sessions/:sessionId", agentsHandler.DeleteSession)
 	}
 }

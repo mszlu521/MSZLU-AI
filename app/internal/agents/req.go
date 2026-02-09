@@ -33,9 +33,9 @@ type UpdateAgentReq struct {
 	OpeningDialogue string            `json:"openingDialogue"`
 }
 type AgentMessageReq struct {
-	AgentID   uuid.UUID `json:"agentId"`
-	Message   string    `json:"message"`
-	SessionId uuid.UUID `json:"sessionId,omitempty"`
+	AgentID   uuid.UUID  `json:"agentId"`
+	Message   string     `json:"message"`
+	SessionId *uuid.UUID `json:"sessionId,omitempty"`
 }
 
 type UpdateAgentToolReq struct {
@@ -66,4 +66,13 @@ type addWorkflowToAgentReq struct {
 	Status     string    `json:"status"`
 	Priority   int       `json:"priority"`
 	IsDefault  bool      `json:"is_default"`
+}
+
+type createSessionRequest struct {
+	AgentID uuid.UUID `json:"agentId"`
+	Title   string    `json:"title"`
+}
+
+type listSessionsRequest struct {
+	AgentID string `json:"agentId" form:"agentId"`
 }

@@ -49,5 +49,6 @@ func Init(s *server.Server, conf *config.Config) {
 func registerTools() {
 	tools.RegisterSystemTools(
 		tools.NewWeatherTool(&tools.WeatherConfig{ApiKey: tools.ApiKey}),
+		tools.NewGitTool(), tools.NewGitCommitTool(),
 	)
 }

@@ -13,6 +13,63 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) getSession(ctx context.Context, sessionId *uuid.UUID) (*model.ChatSession, error) {
+	var session model.ChatSession
+	err := m.db.WithContext(ctx).Where("id = ?", sessionId).First(&session).Error
+	if gorms.IsRecordNotFoundError(err) {
+		return nil, nil
+	}
+	return &session, err
+}
+
+func (m *models) saveChatMessage(ctx context.Context, chatMessage *model.ChatMessage) error {
+	return m.db.WithContext(ctx).Create(chatMessage).Error
+}
+
+func (m *models) deleteSession(ctx context.Context, sessionId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("id = ?", sessionId).Unscoped().Delete(&model.ChatSession{}).Error
+}
+
+func (m *models) deleteSessionMessages(ctx context.Context, sessionId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("session_id = ?", sessionId).Unscoped().Delete(&model.ChatMessage{}).Error
+}
+
+func (m *models) getSessionMessages(ctx context.Context, sessionId uuid.UUID) ([]*model.ChatMessage, error) {
+	var messages []*model.ChatMessage
+	err := m.db.WithContext(ctx).Where("session_id = ?", sessionId).Find(&messages).Error
+	return messages, err
+}
+
+func (m *models) listSessions(ctx context.Context, userID uuid.UUID, agentId uuid.UUID) ([]*model.ChatSession, error) {
+	var sessions []*model.ChatSession
+	err := m.db.WithContext(ctx).Where("agent_id = ?", agentId).Find(&sessions).Error
+	return sessions, err
+}
+
+func (m *models) createSession(ctx context.Context, session *model.ChatSession) error {
+	return m.db.WithContext(ctx).Create(session).Error
+}
+
+func (m *models) deleteAgent(ctx context.Context, id uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("id = ?", id).Delete(&model.Agent{}).Error
+}
+
+func (m *models) deleteAgentKnowledgeBaseByAgentId(ctx context.Context, agentId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ?", agentId).Delete(&model.AgentKnowledgeBase{}).Error
+}
+
+func (m *models) deleteAgentAgentByAgentId(ctx context.Context, agentId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ?", agentId).Delete(&model.AgentAgent{}).Error
+}
+
+func (m *models) deleteAgentWorkflowByAgentId(ctx context.Context, agentId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ?", agentId).Delete(&model.AgentWorkflow{}).Error
+}
+
+func (m *models) transaction(ctx context.Context, f func(tx *gorm.DB) error) error {
+	return m.db.WithContext(ctx).Transaction(f)
+}
+
 func (m *models) deleteAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowId uuid.UUID) error {
 	return m.db.WithContext(ctx).Where("agent_id = ? and workflow_id = ?", agentId, workflowId).Delete(&model.AgentWorkflow{}).Error
 }

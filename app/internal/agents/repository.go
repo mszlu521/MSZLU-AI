@@ -5,6 +5,7 @@ import (
 	"model"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type repository interface {
@@ -23,4 +24,16 @@ type repository interface {
 	getAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowID uuid.UUID) (*model.AgentWorkflow, error)
 	createAgentWorkflow(ctx context.Context, workflow *model.AgentWorkflow) error
 	deleteAgentWorkflow(ctx context.Context, agentId uuid.UUID, workflowId uuid.UUID) error
+	transaction(ctx context.Context, f func(tx *gorm.DB) error) error
+	deleteAgent(ctx context.Context, id uuid.UUID) error
+	deleteAgentKnowledgeBaseByAgentId(ctx context.Context, agentId uuid.UUID) error
+	deleteAgentAgentByAgentId(ctx context.Context, agentId uuid.UUID) error
+	deleteAgentWorkflowByAgentId(ctx context.Context, agentId uuid.UUID) error
+	createSession(ctx context.Context, session *model.ChatSession) error
+	listSessions(ctx context.Context, userID uuid.UUID, agentId uuid.UUID) ([]*model.ChatSession, error)
+	getSessionMessages(ctx context.Context, sessionId uuid.UUID) ([]*model.ChatMessage, error)
+	deleteSession(ctx context.Context, sessionId uuid.UUID) error
+	deleteSessionMessages(ctx context.Context, sessionId uuid.UUID) error
+	getSession(ctx context.Context, sessionId *uuid.UUID) (*model.ChatSession, error)
+	saveChatMessage(ctx context.Context, chatMessage *model.ChatMessage) error
 }

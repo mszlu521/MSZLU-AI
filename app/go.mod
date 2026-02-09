@@ -4,7 +4,7 @@ go 1.24.11
 
 require (
 	github.com/PuerkitoBio/goquery v1.8.1
-	github.com/cloudwego/eino v0.7.7
+	github.com/cloudwego/eino v0.7.32
 	github.com/cloudwego/eino-ext/components/document/loader/file v0.0.0-20251223041451-fede3afb5715
 	github.com/cloudwego/eino-ext/components/document/parser/docx v0.0.0-20260109062358-b9080dbc7bed
 	github.com/cloudwego/eino-ext/components/document/parser/html v0.0.0-20260109062358-b9080dbc7bed

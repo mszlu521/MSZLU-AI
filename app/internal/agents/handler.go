@@ -309,6 +309,85 @@ func (h *Handler) DeleteWorkflowFromAgent(c *gin.Context) {
 	res.Success(c, nil)
 }
 
+func (h *Handler) DeleteAgent(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	err := h.service.deleteAgent(c.Request.Context(), agentId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, nil)
+}
+
+func (h *Handler) CreateSession(c *gin.Context) {
+	var param createSessionRequest
+	if err := req.JsonParam(c, &param); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.createSession(c.Request.Context(), userID, param)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) ListSessions(c *gin.Context) {
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	var param listSessionsRequest
+	err := req.QueryParam(c, &param)
+	if err != nil {
+		return
+	}
+	agentId, err := uuid.Parse(param.AgentID)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	resp, err := h.service.listSessions(c.Request.Context(), userID, agentId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) GetSessionMessages(c *gin.Context) {
+	var sessionId uuid.UUID
+	if err := req.Path(c, "sessionId", &sessionId); err != nil {
+		return
+	}
+	resp, err := h.service.getSessionMessages(c.Request.Context(), sessionId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) DeleteSession(c *gin.Context) {
+	var sessionId uuid.UUID
+	if err := req.Path(c, "sessionId", &sessionId); err != nil {
+		return
+	}
+	err := h.service.deleteSession(c.Request.Context(), sessionId)
+	if err != nil {
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, nil)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

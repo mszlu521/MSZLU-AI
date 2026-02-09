@@ -223,3 +223,29 @@ type AgentWorkflow struct {
 func (AgentWorkflow) TableName() string {
 	return "agent_workflows"
 }
+
+type ChatSession struct {
+	BaseModel
+	AgentID  uuid.UUID     `json:"agentId" gorm:"type:uuid;not null;index"`
+	UserID   uuid.UUID     `json:"userId" gorm:"type:uuid;not null;index"`
+	Title    string        `json:"title" gorm:"type:varchar(255)"`
+	Messages []ChatMessage `json:"messages" gorm:"foreignKey:session_id"`
+}
+
+// TableName returns the table name for ChatSession
+func (ChatSession) TableName() string {
+	return "chat_sessions"
+}
+
+// ChatMessage represents a single message in a chat session
+type ChatMessage struct {
+	BaseModel
+	SessionID uuid.UUID `json:"sessionId" gorm:"type:uuid;not null;index"`
+	Role      string    `json:"role" gorm:"type:varchar(50);not null"` // user, assistant, system
+	Content   string    `json:"content" gorm:"type:text;not null"`
+}
+
+// TableName returns the table name for ChatMessage
+func (ChatMessage) TableName() string {
+	return "chat_messages"
+}
