@@ -17,7 +17,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2
-	github.com/mszlu521/thunder v1.0.3
+	github.com/mszlu521/thunder v1.0.5
 	golang.org/x/crypto v0.45.0
 	golang.org/x/net v0.47.0
 	gorm.io/gorm v1.31.1

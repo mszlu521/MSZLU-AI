@@ -1,0 +1,102 @@
+# MSZLU-AI 主应用部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mszlu-ai-app
+  namespace: mszlu-ai
+  labels:
+    app: mszlu-ai-app
+    version: v1.0.0
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mszlu-ai-app
+  template:
+    metadata:
+      labels:
+        app: mszlu-ai-app
+        version: v1.0.0
+        tier: frontend
+    spec:
+      # Pod反亲和性配置 - 确保副本分布在不同节点（多节点集群建议启用）
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - mszlu-ai-app
+                topologyKey: kubernetes.io/hostname
+      # 镜像拉取密钥
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: app
+          image: 192.168.8.101:30002/mszlu-ai/app:v1.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8888
+              name: http
+              protocol: TCP
+          env:
+            - name: GIN_MODE
+              value: "release"
+            - name: TZ
+              value: "Asia/Shanghai"
+          volumeMounts:
+            - name: app-config-volume
+              mountPath: /app/etc/config.yml
+              subPath: config.yml
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8888
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8888
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8888
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30  # 允许150秒启动时间
+      volumes:
+        - name: app-config-volume
+          configMap:
+            name: app-config
+            defaultMode: 0644
+      # 调度策略
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      securityContext:
+        runAsNonRoot: false

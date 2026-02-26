@@ -7,4 +7,5 @@ use (
 	mcp-server
 	model
 	a2a-server
+	benchmark
 )

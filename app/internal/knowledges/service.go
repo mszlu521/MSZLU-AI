@@ -37,6 +37,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/mszlu521/thunder/ai/einos"
+	"github.com/mszlu521/thunder/config"
 	"github.com/mszlu521/thunder/database"
 	"github.com/mszlu521/thunder/einos/components/document/parser/epub"
 	"github.com/mszlu521/thunder/errs"
@@ -1336,23 +1337,51 @@ func looksLikeCode(block string) bool {
 		strings.Contains(block, "}")
 }
 func newService() *service {
-	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{
-			"http://localhost:9200",
-		},
-		Username: "elastic",
-		Password: "mszlu123456!@#$",
-	})
+	conf := config.GetConfig()
+
+	// 从配置读取 Elasticsearch 配置
+	esConfig := elasticsearch.Config{
+		Addresses: conf.Elasticsearch.GetAddresses(),
+	}
+	if conf.Elasticsearch.GetUsername() != "" {
+		esConfig.Username = conf.Elasticsearch.GetUsername()
+	}
+	if conf.Elasticsearch.GetPassword() != "" {
+		esConfig.Password = conf.Elasticsearch.GetPassword()
+	}
+	if conf.Elasticsearch.GetAPIKey() != "" {
+		esConfig.APIKey = conf.Elasticsearch.GetAPIKey()
+	}
+
+	esClient, err := elasticsearch.NewClient(esConfig)
 	if err != nil {
+		logs.Errorf("elasticsearch client init error: %v", err)
 		panic(err)
 	}
-	milvusClient, err := client.NewClient(context.Background(), client.Config{
-		Address: "localhost:19530",
-		DBName:  "faber_ai",
-	})
+
+	// 从配置读取 Milvus 配置
+	milvusConfig := client.Config{
+		Address: conf.Milvus.GetAddress(),
+	}
+	if conf.Milvus.GetDBName() != "" {
+		milvusConfig.DBName = conf.Milvus.GetDBName()
+	}
+	if conf.Milvus.GetUsername() != "" {
+		milvusConfig.Username = conf.Milvus.GetUsername()
+	}
+	if conf.Milvus.GetPassword() != "" {
+		milvusConfig.Password = conf.Milvus.GetPassword()
+	}
+
+	milvusClient, err := client.NewClient(context.Background(), milvusConfig)
 	if err != nil {
+		logs.Errorf("milvus client init error: %v", err)
 		panic(err)
 	}
+
+	logs.Infof("elasticsearch and milvus client init success, es: %v, milvus: %s",
+		conf.Elasticsearch.GetAddresses(), conf.Milvus.GetAddress())
+
 	return &service{
 		repo:         newModels(database.GetPostgresDB().GormDB),
 		esClient:     esClient,

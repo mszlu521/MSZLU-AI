@@ -428,6 +428,8 @@ github.com/mszlu521/go-epub v1.0.1 h1:o1nd8I9vm37kHX0CBnw2yEzQtE2lybx57EezD51ssa
 github.com/mszlu521/go-epub v1.0.1/go.mod h1:nP4P80h2sPmPwKXgJ1+q5F8Cq//upbZFyt4tRMMvw3U=
 github.com/mszlu521/thunder v1.0.3 h1:r/Wblhf9Gm6zuvMYWVKs9c0ijnN5QLh8ovcHncDlroI=
 github.com/mszlu521/thunder v1.0.3/go.mod h1:f9S5Zi08LTl5kjNdYmQ2lsnqkmZXYc3pFJORzs5zaAM=
+github.com/mszlu521/thunder v1.0.5 h1:0voai5/uN2xTFTqZ5ja73sggFGfti8/spPzx9g4vYgE=
+github.com/mszlu521/thunder v1.0.5/go.mod h1:f9S5Zi08LTl5kjNdYmQ2lsnqkmZXYc3pFJORzs5zaAM=
 github.com/nats-io/jwt v0.3.0/go.mod h1:fRYCDE99xlTsqUzISS1Bi75UBJ6ljOJQOAAu5VglpSg=
 github.com/nats-io/nats.go v1.9.1/go.mod h1:ZjDU1L/7fJ09jvUSRVBR2e7+RnLiiIQyqyzEE/Zbp4w=
 github.com/nats-io/nkeys v0.1.0/go.mod h1:xpnFELMwJABBLVhffcfd1MZx6VsNRFpEugbxziKVo7w=

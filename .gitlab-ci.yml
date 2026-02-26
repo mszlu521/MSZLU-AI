@@ -1,0 +1,89 @@
+stages:
+  - package
+  - deploy
+
+variables:
+  HARBOR_REGISTRY: "192.168.8.101:30002"
+  HARBOR_PROJECT: "mszlu-ai"
+  IMAGE_NAME: "app"
+  GOPROXY: https://goproxy.cn,direct
+  # Docker 镜像拉取代理配置
+  HTTP_PROXY: http://192.168.8.1:7890
+  HTTPS_PROXY: http://192.168.8.1:7890
+  NO_PROXY: "localhost,127.0.0.1,.svc,.cluster.local,192.168.8.0/16,10.0.0.0/8"
+
+# 使用 Kaniko 构建镜像（无需 Docker daemon，无需 privileged）
+package:
+  stage: package
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  # 启用 Kaniko 层缓存，加速构建
+  variables:
+    KANIKO_CACHE: "true"
+    KANIKO_CACHE_REPO: "${HARBOR_REGISTRY}/cache/kaniko-cache"
+    KANIKO_CACHE_TTL: "24h"
+  before_script:
+    # 创建 Docker 配置文件
+    - mkdir -p /kaniko/.docker
+    - |
+      cat > /kaniko/.docker/config.json <<EOF
+      {
+        "auths": {
+          "${HARBOR_REGISTRY}": {
+            "username": "${HARBOR_USER}",
+            "password": "${HARBOR_PASSWORD}"
+          }
+        }
+      }
+      EOF
+    # 确保 cache 项目存在（如果不存在会跳过缓存，不影响构建）
+    - 'curl -s -o /dev/null -w "%{http_code}" -u "${HARBOR_USER}:${HARBOR_PASSWORD}" http://${HARBOR_REGISTRY}/api/v2.0/projects?project_name=cache | grep -q "200\|409" || echo "Warning: cache project may not exist"'
+    # 检查环境变量
+    - '[ -z "$HARBOR_USER" ] && { echo "Error: HARBOR_USER is not set"; exit 1; }'
+    - '[ -z "$HARBOR_PASSWORD" ] && { echo "Error: HARBOR_PASSWORD is not set"; exit 1; }'
+  script:
+    - export IMAGE_TAG="${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}-${CI_PIPELINE_ID}"
+    # Kaniko 构建并推送镜像（启用层缓存）
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/docker/Dockerfile.app"
+      --destination "${IMAGE_TAG}"
+      --destination "${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest"
+      --cache=${KANIKO_CACHE}
+      --cache-repo=${KANIKO_CACHE_REPO}
+      --cache-ttl=${KANIKO_CACHE_TTL}
+      --insecure
+      --insecure-registry "${HARBOR_REGISTRY}"
+      --insecure-registry "${HARBOR_REGISTRY}/cache"
+    - echo $IMAGE_TAG > image-tag.txt
+  artifacts:
+    paths:
+      - image-tag.txt
+  only:
+    - master
+    - main
+    - develop
+
+deploy:
+  stage: deploy
+  image: alpine/git:latest
+  before_script:
+    - apk add --no-cache git
+    - git config --global user.email "ci@mszlu-ai.com"
+    - git config --global user.name "GitLab CI"
+  script:
+    - export IMAGE_TAG=$(cat image-tag.txt)
+    - '[ "$CI_COMMIT_BRANCH" = "master" ] && export ENV="prod" || export ENV="dev"'
+    - git clone http://root:${GITLAB_TOKEN}@192.168.8.101:30088/root/mszlu-ai-gitops.git
+    - cd mszlu-ai-gitops
+    - git config user.email "ci@mszlu-ai.com"
+    - git config user.name "GitLab CI"
+    - 'sed -i "s|image:.*|image: ${IMAGE_TAG}|g" overlays/${ENV}/app-deployment-patch.yaml'
+    - git add .
+    - git commit -m "Update ${ENV} image to ${IMAGE_TAG} [ci skip]"
+    - git push http://root:${GITLAB_TOKEN}@192.168.8.101:30088/root/mszlu-ai-gitops.git master
+  only:
+    - master
+    - main
+    - develop

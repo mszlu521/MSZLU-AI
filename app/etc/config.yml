@@ -12,6 +12,7 @@ auth:
   isAuth: true
   ignores:
     - "/api/v1/auth/**"
+    - "/health"
   needLogins:
     - "/api/v1/agents/**"
     - "/api/v1/tools/**"
@@ -45,3 +46,15 @@ jwt:
   secret: "mszlu-ai"
   expire: 7h
   refresh: 240h
+
+# Elasticsearch 配置
+elasticsearch:
+  addresses:
+    - "http://localhost:9200"
+  username: "elastic"
+  password: "mszlu123456!@#$"
+
+# Milvus 配置
+milvus:
+  address: "localhost:19530"
+  dbName: "default"

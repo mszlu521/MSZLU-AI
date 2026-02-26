@@ -1,0 +1,92 @@
+---
+# Redis 持久化存储 (NFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: mszlu-ai
+  labels:
+    app: redis
+    tier: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 5Gi  # 生产环境增加容量
+
+---
+# Elasticsearch 数据存储 (NFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-pvc
+  namespace: mszlu-ai
+  labels:
+    app: elasticsearch
+    tier: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi  # ES需要较大存储
+
+---
+# Etcd 元数据存储 (NFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etcd-pvc
+  namespace: mszlu-ai
+  labels:
+    app: etcd
+    tier: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# MinIO 对象存储 (NFS)
+# 注意: MinIO生产环境建议使用本地存储或专用对象存储
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: mszlu-ai
+  labels:
+    app: minio
+    tier: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 20Gi  # 对象存储需要大容量
+
+---
+# Milvus 向量数据库存储 (NFS)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: milvus-pvc
+  namespace: mszlu-ai
+  labels:
+    app: milvus
+    tier: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 10Gi
+
+---

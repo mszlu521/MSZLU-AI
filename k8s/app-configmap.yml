@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: mszlu-ai
+data:
+  config.yml: |
+    app:
+      name: "mszlu-ai"
+    server:
+      mode: "release"  # 生产环境使用release模式
+      host: "0.0.0.0"  # 监听所有网络接口
+      port: 8888
+      readTimeout: 10s
+      writeTimeout: 10s
+      cors:
+        - "*"
+    auth:
+      isAuth: true
+      ignores:
+        - "/api/v1/auth/**"
+        - "/health"
+      needLogins:
+        - "/api/v1/agents/**"
+        - "/api/v1/tools/**"
+        - "/api/v1/provider-configs/**"
+        - "/api/v1/llms/**"
+    log:
+      level: "info"
+      format: "json"  # 生产环境使用json格式
+      addSource: false
+    db:
+      postgres:
+        host: "postgres-service"
+        port: 5432
+        user: "mszluai"
+        password: "mszlu123456"
+        database: "faber-ai"
+        sslMode: "disable"
+        maxIdleConns: 10
+        maxOpenConns: 100
+        pingTimeout: 5s
+      redis:
+        addr: "redis-service:6379"
+    email:
+      host: "smtp.163.com"
+      port: 25
+      username: "mszlu_ai@163.com"
+      password: ""
+      from: "mszlu_ai@163.com"
+      baseUrl: "http://your-domain.com"
+    jwt:
+      secret: "mszlu-ai-secret-key-change-in-production"
+      expire: 7h
+      refresh: 240h
+    
+    # Elasticsearch 配置
+    elasticsearch:
+      addresses:
+        - "http://elasticsearch-service:9200"
+      username: "elastic"
+      password: "mszlu123456!@#$"
+    
+    # Milvus 配置
+    milvus:
+      address: "milvus-service:19530"
+      dbName: "default"

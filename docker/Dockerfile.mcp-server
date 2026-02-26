@@ -1,0 +1,52 @@
+FROM golang:1.24-alpine AS builder
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制go.mod和go.sum文件
+COPY ./mcp-server/go.mod ./mcp-server/go.sum ./
+
+# 下载依赖
+RUN go mod download
+
+# 复制源代码
+COPY ./mcp-server ./mcp-server
+COPY ./common ./common
+COPY ./core ./core
+
+# 编译应用
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./mcp-server/main.go
+
+# 使用最小的基础镜像
+FROM alpine:latest
+
+# 安装ca-certificates、wget和tzdata（时区数据）
+RUN apk --no-cache add ca-certificates wget tzdata
+
+# 设置时区环境变量（确保Go程序能正确识别时区）
+ENV TZ=Asia/Shanghai
+
+# 创建非root用户
+RUN adduser -D -s /bin/sh appuser
+
+WORKDIR /app
+
+# 从builder阶段复制二进制文件和配置文件
+COPY --from=builder /app/main .
+COPY ./mcp-server/etc ./etc
+
+# 更改文件所有权
+RUN chown -R appuser:appuser /app
+
+# 切换到非root用户
+USER appuser
+
+# 暴露端口
+EXPOSE 7777
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:7777/health || exit 1
+
+# 启动应用
+ENTRYPOINT ["./main"]
