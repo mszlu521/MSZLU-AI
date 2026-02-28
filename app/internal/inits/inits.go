@@ -57,8 +57,16 @@ func Init(s *server.Server, conf *config.Config) {
 }
 
 func registerTools() {
+	err := tools.InitK8sClient()
+	if err != nil {
+		logs.Error("init k8s client error", "error", err)
+	}
 	tools.RegisterSystemTools(
 		tools.NewWeatherTool(&tools.WeatherConfig{ApiKey: tools.ApiKey}),
 		tools.NewGitTool(), tools.NewGitCommitTool(),
+		tools.NewK8sResourceQueryTool(),
+		tools.NewK8sLogsTool(),
+		tools.NewK8sResourceActionTool(),
+		tools.NewK8sHealthCheckTool(),
 	)
 }

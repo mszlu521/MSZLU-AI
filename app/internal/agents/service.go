@@ -303,13 +303,17 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, histor
 		logs.Errorf("构建skills失败: %v", err)
 		return nil, err
 	}
+	systemPrompt := ai.BaseSystemPrompt
+	if agent.Name == "AI运维" || agent.Name == "OpsMaster" {
+		systemPrompt = ai.DevOpsSystemPrompt
+	}
 	//在这里将关联的知识库内容查询出来
 	ragContext := s.buildRagContext(ctx, dataChan, message, agent)
 	modelAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Model:       chatModel,
 		Name:        agent.Name,
 		Description: agent.Description,
-		Instruction: ai.BaseSystemPrompt, //这是我们定义的系统提示词
+		Instruction: systemPrompt, //这是我们定义的系统提示词
 		GenModelInput: func(ctx context.Context, instruction string, input *adk.AgentInput) ([]adk.Message, error) {
 			optional := false
 			if len(history) == 0 {
@@ -317,7 +321,7 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, histor
 			}
 			//这是在最终发送大模型前做一些处理 一般是重新构建系统提示词
 			template := prompt.FromMessages(schema.FString,
-				schema.SystemMessage(ai.BaseSystemPrompt),
+				schema.SystemMessage(systemPrompt),
 				schema.MessagesPlaceholder("history_key", optional),
 			)
 			messages, err2 := template.Format(ctx, map[string]any{

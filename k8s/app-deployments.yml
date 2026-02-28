@@ -20,6 +20,7 @@ spec:
         version: v1.0.0
         tier: frontend
     spec:
+      serviceAccountName: ai-ops
       # Pod反亲和性配置 - 确保副本分布在不同节点（多节点集群建议启用）
       affinity:
         podAntiAffinity:
