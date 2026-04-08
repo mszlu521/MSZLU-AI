@@ -38,7 +38,7 @@ func (m *models) listLLMAll(ctx context.Context, userID uuid.UUID, filter LLMFil
 
 func (m *models) getProviderConfig(ctx context.Context, provider string) (*model.ProviderConfig, error) {
 	var pc model.ProviderConfig
-	err := m.db.WithContext(ctx).Where("provider = ? ", provider).First(&pc).Error
+	err := m.db.WithContext(ctx).Where("name = ? ", provider).First(&pc).Error
 	if gorms.IsRecordNotFoundError(err) {
 		return nil, nil
 	}

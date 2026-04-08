@@ -60,6 +60,7 @@ type Agent struct {
 	KnowledgeBases []*KnowledgeBase `json:"knowledgeBases" gorm:"many2many:agent_knowledge_bases"`
 	Agents         []*AgentMarket   `json:"agentMarkets" gorm:"many2many:agent_agents"`
 	Workflows      []*Workflow      `json:"workflows" gorm:"many2many:agent_workflows"`
+	Skills         []*Skill         `json:"skills" gorm:"many2many:agent_skills"`
 }
 
 // TableName 返回表名
@@ -248,4 +249,25 @@ type ChatMessage struct {
 // TableName returns the table name for ChatMessage
 func (ChatMessage) TableName() string {
 	return "chat_messages"
+}
+
+// AgentSkill Agent与技能的关联
+type AgentSkill struct {
+	// AgentID Agent ID
+	AgentID uuid.UUID `json:"agentId" gorm:"column:agent_id;type:uuid;not null;primaryKey;index:idx_agent_skill"`
+	// SkillID Skill ID
+	SkillID uuid.UUID `json:"skillId" gorm:"column:skill_id;type:uuid;not null;primaryKey;index:idx_skill_agent"`
+	// Status 关联状态
+	Status string `json:"status" gorm:"column:status;type:varchar(20);not null;default:'active'"`
+	// CreatedAt 创建时间
+	CreatedAt time.Time `json:"createdAt" gorm:"column:created_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP"`
+	// UpdatedAt 更新时间
+	UpdatedAt time.Time `json:"updatedAt" gorm:"column:updated_at;type:timestamptz;not null;default:CURRENT_TIMESTAMP"`
+	// 关联关系
+	Skill *Skill `json:"skill" gorm:"foreignKey:SkillID"`
+}
+
+// TableName 返回表名
+func (AgentSkill) TableName() string {
+	return "agent_skills"
 }

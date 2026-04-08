@@ -13,6 +13,31 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) deleteAgentTool(ctx context.Context, agentId uuid.UUID, toolId uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ? and tool_id = ?", agentId, toolId).Delete(&model.AgentTool{}).Error
+}
+
+func (m *models) deleteAgentSkill(ctx context.Context, agentId uuid.UUID, skillID uuid.UUID) error {
+	return m.db.WithContext(ctx).Where("agent_id = ? and skill_id = ?", agentId, skillID).Delete(&model.AgentSkill{}).Error
+}
+
+func (m *models) getAgentSkill(ctx context.Context, agentId uuid.UUID, skillID uuid.UUID) (*model.AgentSkill, error) {
+	var agentSkill model.AgentSkill
+	err := m.db.WithContext(ctx).Where("agent_id = ? and skill_id = ?", agentId, skillID).First(&agentSkill).Error
+	if gorms.IsRecordNotFoundError(err) {
+		return nil, nil
+	}
+	return &agentSkill, err
+}
+
+func (m *models) updateAgentSkill(ctx context.Context, agentSkill *model.AgentSkill) error {
+	return m.db.WithContext(ctx).Updates(agentSkill).Error
+}
+
+func (m *models) saveAgentSkill(ctx context.Context, skill *model.AgentSkill) error {
+	return m.db.WithContext(ctx).Create(skill).Error
+}
+
 func (m *models) getSession(ctx context.Context, sessionId *uuid.UUID) (*model.ChatSession, error) {
 	var session model.ChatSession
 	err := m.db.WithContext(ctx).Where("id = ?", sessionId).First(&session).Error
@@ -140,6 +165,7 @@ func (m *models) getAgent(ctx context.Context, userID uuid.UUID, id uuid.UUID) (
 		Preload("KnowledgeBases").
 		Preload("Agents").
 		Preload("Workflows").
+		Preload("Skills").
 		Where("id = ? and creator_id = ? ", id, userID).First(&agent).Error
 	if gorms.IsRecordNotFoundError(err) {
 		return nil, nil

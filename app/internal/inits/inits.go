@@ -40,6 +40,7 @@ func Init(s *server.Server, conf *config.Config) {
 		&router.A2ARouter{},
 		&router.WorkflowRouter{},
 		&router.NodeRouter{},
+		&router.SkillRouter{},
 	)
 	// 注册事件处理器
 	eventRouter := &router.Event{}
@@ -68,5 +69,7 @@ func registerTools() {
 		tools.NewK8sLogsTool(),
 		tools.NewK8sResourceActionTool(),
 		tools.NewK8sHealthCheckTool(),
+		tools.NewFileWriteTool(&tools.FileWriteConfig{}),
+		tools.NewHTMLToPPTTool(&tools.HTMLToPPTConfig{}),
 	)
 }

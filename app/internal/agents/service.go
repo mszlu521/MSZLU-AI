@@ -20,6 +20,7 @@ import (
 	"github.com/cloudwego/eino-ext/a2a/client"
 	"github.com/cloudwego/eino-ext/a2a/extension/eino"
 	"github.com/cloudwego/eino-ext/a2a/transport/jsonrpc"
+	"github.com/cloudwego/eino-ext/adk/backend/local"
 	"github.com/cloudwego/eino-ext/components/model/ollama"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino-ext/components/model/qwen"
@@ -343,7 +344,7 @@ func (s *service) buildMainAgent(ctx context.Context, agent *model.Agent, histor
 				Tools: allTools,
 			},
 		},
-		Middlewares: skills,
+		Handlers: skills,
 	})
 	if err != nil {
 		logs.Errorf("构建ChatModelAgent失败: %v", err)
@@ -1366,36 +1367,151 @@ func (s *service) terminateInterview(sessionId uuid.UUID, stageName string, fail
 	s.ClearState(sessionId.String())
 }
 
-func (s *service) buildSkills(agent *model.Agent) ([]adk.AgentMiddleware, error) {
-	if agent.Name == "git提交" {
-		backend, err := skill.NewLocalBackend(&skill.LocalBackendConfig{
-			BaseDir: "D:\\ai\\mszlu\\mszlu-im\\.roo\\skills",
+func (s *service) buildSkills(agent *model.Agent) ([]adk.ChatModelAgentMiddleware, error) {
+	skills := agent.Skills
+	if len(skills) == 0 {
+		return []adk.ChatModelAgentMiddleware{}, nil
+	}
+	var middlewares []adk.ChatModelAgentMiddleware
+	//加载技能
+	//我们按baseDir分组，避免重复创建
+	dirToSkills := make(map[string][]*model.Skill)
+	for _, sk := range skills {
+		if sk.BaseDir != "" {
+			dirToSkills[sk.BaseDir] = append(dirToSkills[sk.BaseDir], sk)
+		}
+	}
+	//为每个baseDir创建一个backend并加载skill
+	for baseDir, sls := range dirToSkills {
+		backend, _ := local.NewBackend(context.Background(), &local.Config{})
+		bc, err := skill.NewBackendFromFilesystem(context.Background(), &skill.BackendFromFilesystemConfig{
+			Backend: backend,
+			BaseDir: baseDir,
 		})
 		if err != nil {
 			logs.Errorf("创建技能后端失败：%v", err)
-			return nil, err
+			continue
 		}
-		list, err := backend.List(context.Background())
-		if err != nil {
-			logs.Errorf("获取技能列表失败：%v", err)
-			return nil, err
-		}
-		var skills []adk.AgentMiddleware
-		for _, sk := range list {
-			middleware, err := skill.New(context.Background(), &skill.Config{
-				Backend:       backend,
+		for _, sk := range sls {
+			middleware, err := skill.NewMiddleware(context.Background(), &skill.Config{
+				Backend:       bc,
 				SkillToolName: &sk.Name,
-				UseChinese:    true,
 			})
 			if err != nil {
 				logs.Errorf("创建技能失败：%v", err)
-				return nil, err
+				continue
 			}
-			skills = append(skills, middleware)
+			middlewares = append(middlewares, middleware)
 		}
-		return skills, nil
 	}
-	return []adk.AgentMiddleware{}, nil
+	return middlewares, nil
+	//if agent.Name == "git提交" {
+	//	backend, err := skill.NewLocalBackend(&skill.LocalBackendConfig{
+	//		BaseDir: "D:\\ai\\mszlu\\mszlu-im\\.roo\\skills",
+	//	})
+	//	if err != nil {
+	//		logs.Errorf("创建技能后端失败：%v", err)
+	//		return nil, err
+	//	}
+	//	list, err := backend.List(context.Background())
+	//	if err != nil {
+	//		logs.Errorf("获取技能列表失败：%v", err)
+	//		return nil, err
+	//	}
+	//	var skills []adk.AgentMiddleware
+	//	for _, sk := range list {
+	//		middleware, err := skill.New(context.Background(), &skill.Config{
+	//			Backend:       backend,
+	//			SkillToolName: &sk.Name,
+	//			UseChinese:    true,
+	//		})
+	//		if err != nil {
+	//			logs.Errorf("创建技能失败：%v", err)
+	//			return nil, err
+	//		}
+	//		skills = append(skills, middleware)
+	//	}
+	//	return skills, nil
+	//}
+	//return []adk.AgentMiddleware{}, nil
+}
+
+func (s *service) addSkillToAgent(ctx context.Context, userID uuid.UUID, agentId uuid.UUID, reqs AddAgentSkillReq) (any, error) {
+	//检查agent是否存在
+	agent, err := s.repo.getAgent(ctx, userID, agentId)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, biz.AgentNotFound
+	}
+	//直接关联技能
+	err = s.repo.transaction(ctx, func(tx *gorm.DB) error {
+		for _, skillID := range reqs.SkillIDs {
+			//检查是否已经存在关联
+			existed, err := s.repo.getAgentSkill(ctx, agentId, skillID)
+			if err != nil {
+				return err
+			}
+			if existed == nil {
+				//如果不存在就创建新的关联
+				agentSkill := &model.AgentSkill{
+					AgentID:   agentId,
+					SkillID:   skillID,
+					Status:    "active",
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+				err := s.repo.saveAgentSkill(ctx, agentSkill)
+				if err != nil {
+					logs.Errorf("保存技能关联失败：%v", err)
+					return err
+				}
+			} else {
+				//如果已经存在，防止是未激活状态，则激活
+				existed.Status = "active"
+				existed.UpdatedAt = time.Now()
+				err := s.repo.updateAgentSkill(ctx, existed)
+				if err != nil {
+					logs.Errorf("更新技能关联失败：%v", err)
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		logs.Errorf("添加技能失败：%v", err)
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (s *service) deleteSkillFromAgent(ctx context.Context, userID uuid.UUID, agentId uuid.UUID, skillId uuid.UUID) error {
+	//检查agent是否存在
+	agent, err := s.repo.getAgent(ctx, userID, agentId)
+	if err != nil {
+		return err
+	}
+	if agent == nil {
+		return biz.AgentNotFound
+	}
+	err = s.repo.deleteAgentSkill(ctx, agentId, skillId)
+	if err != nil {
+		logs.Errorf("删除技能失败：%v", err)
+		return err
+	}
+	return nil
+}
+
+func (s *service) deleteAgentTool(ctx context.Context, userID uuid.UUID, agentId uuid.UUID, toolId uuid.UUID) error {
+	err := s.repo.deleteAgentTool(ctx, agentId, toolId)
+	if err != nil {
+		logs.Errorf("删除工具失败：%v", err)
+		return errs.DBError
+	}
+	return nil
 }
 
 func newService() *service {

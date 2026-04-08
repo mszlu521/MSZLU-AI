@@ -181,6 +181,12 @@ func (s *service) login(req LoginReq) (*LoginResp, error) {
 		return nil, biz.ErrEmailNotVerified
 	}
 	//比对密码
+	password, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		logs.Errorf("login GenerateFromPassword error: %v", err)
+		return nil, errs.DBError
+	}
+	logs.Infof("password: %s", password)
 	err = bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password))
 	if err != nil {
 		return nil, biz.ErrPasswordInvalid

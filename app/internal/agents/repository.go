@@ -36,4 +36,9 @@ type repository interface {
 	deleteSessionMessages(ctx context.Context, sessionId uuid.UUID) error
 	getSession(ctx context.Context, sessionId *uuid.UUID) (*model.ChatSession, error)
 	saveChatMessage(ctx context.Context, chatMessage *model.ChatMessage) error
+	getAgentSkill(ctx context.Context, agentId uuid.UUID, skillID uuid.UUID) (*model.AgentSkill, error)
+	updateAgentSkill(ctx context.Context, agentSkill *model.AgentSkill) error
+	saveAgentSkill(ctx context.Context, skill *model.AgentSkill) error
+	deleteAgentSkill(ctx context.Context, agentId uuid.UUID, skillID uuid.UUID) error
+	deleteAgentTool(ctx context.Context, agentId uuid.UUID, toolId uuid.UUID) error
 }

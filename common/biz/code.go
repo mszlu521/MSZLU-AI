@@ -46,3 +46,9 @@ var (
 var (
 	ErrNodeTypeNotExisted = errs.NewError(70001, "节点类型不存在")
 )
+var (
+	ErrSkillNotFound              = errs.NewError(80001, "技能不存在")
+	ErrSkillAlreadyExisted        = errs.NewError(80002, "技能已存在")
+	ErrGithubSourceAlreadyExisted = errs.NewError(80003, "GithubSource已存在")
+	ErrGithubSourceNotFound       = errs.NewError(80004, "GithubSource不存在")
+)

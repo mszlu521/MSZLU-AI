@@ -388,6 +388,72 @@ func (h *Handler) DeleteSession(c *gin.Context) {
 	res.Success(c, nil)
 }
 
+func (h *Handler) AddSkillToAgent(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var reqs AddAgentSkillReq
+	if err := req.JsonParam(c, &reqs); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.addSkillToAgent(c.Request.Context(), userID, agentId, reqs)
+	if err != nil {
+		logs.Errorf("add skill to agent error: %v", err)
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, resp)
+}
+
+func (h *Handler) DeleteSkillFromAgent(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var skillId uuid.UUID
+	if err := req.Path(c, "skillId", &skillId); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	err := h.service.deleteSkillFromAgent(c.Request.Context(), userID, agentId, skillId)
+	if err != nil {
+		logs.Errorf("delete skill from agent error: %v", err)
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, nil)
+}
+
+func (h *Handler) DeleteAgentTool(c *gin.Context) {
+	var agentId uuid.UUID
+	if err := req.Path(c, "id", &agentId); err != nil {
+		return
+	}
+	var toolId uuid.UUID
+	if err := req.Path(c, "toolId", &toolId); err != nil {
+		return
+	}
+	userID, ok := req.GetUserIdUUID(c)
+	if !ok {
+		return
+	}
+	err := h.service.deleteAgentTool(c.Request.Context(), userID, agentId, toolId)
+	if err != nil {
+		logs.Errorf("delete tool from agent error: %v", err)
+		res.Error(c, err)
+		return
+	}
+	res.Success(c, nil)
+}
+
 func NewHandler() *Handler {
 	return &Handler{
 		service: newService(),

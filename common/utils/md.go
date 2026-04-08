@@ -6,6 +6,93 @@ import (
 	"strings"
 )
 
+// SkillMetadata 技能元数据
+type SkillMetadata struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Version     string   `json:"version"`
+	Author      string   `json:"author"`
+	Tags        []string `json:"tags"`
+}
+
+// ParseSkillMd 解析 skill.md 文件内容，提取元数据
+func ParseSkillMd(content string) *SkillMetadata {
+	metadata := &SkillMetadata{
+		Name:        "",
+		Description: "",
+		Version:     "1.0.0",
+		Author:      "",
+		Tags:        []string{},
+	}
+
+	// 解析 YAML frontmatter (--- ... ---)
+	frontmatterMatch := regexp.MustCompile(`^---\s*\n([\s\S]*?)\n---\s*\n`).FindStringSubmatch(content)
+	if frontmatterMatch != nil && len(frontmatterMatch) > 1 {
+		frontmatter := frontmatterMatch[1]
+		lines := strings.Split(frontmatter, "\n")
+		for _, line := range lines {
+			match := regexp.MustCompile(`^([\w-]+):\s*(.*)$`).FindStringSubmatch(line)
+			if match != nil && len(match) > 2 {
+				key := strings.TrimSpace(match[1])
+				value := strings.TrimSpace(match[2])
+				// 去除引号
+				value = strings.Trim(value, "\"'")
+
+				switch key {
+				case "name":
+					metadata.Name = value
+				case "description":
+					metadata.Description = value
+				case "version":
+					metadata.Version = value
+				case "author":
+					metadata.Author = value
+				case "tags":
+					// 解析 tags 数组（逗号分隔）
+					tags := strings.Split(value, ",")
+					for _, tag := range tags {
+						tag = strings.TrimSpace(tag)
+						if tag != "" {
+							metadata.Tags = append(metadata.Tags, tag)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 如果没有 name，尝试从 Markdown 标题提取
+	if metadata.Name == "" {
+		titleMatch := regexp.MustCompile(`(?m)^#\s+(.+)$`).FindStringSubmatch(content)
+		if titleMatch != nil && len(titleMatch) > 1 {
+			metadata.Name = strings.TrimSpace(titleMatch[1])
+		}
+	}
+
+	// 如果没有 description，尝试从第一段提取
+	if metadata.Description == "" {
+		// 先去除 YAML frontmatter
+		contentWithoutFrontmatter := content
+		if frontmatterMatch != nil {
+			contentWithoutFrontmatter = content[len(frontmatterMatch[0]):]
+		}
+		// 按行分割，找到第一个非空且不是标题的行
+		lines := strings.Split(contentWithoutFrontmatter, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				if len(trimmed) > 200 {
+					trimmed = trimmed[:200]
+				}
+				metadata.Description = trimmed
+				break
+			}
+		}
+	}
+
+	return metadata
+}
+
 func ExtractTitle(content string, mark string) string {
 	re := regexp.MustCompile(fmt.Sprintf(`(?m)^%s\s+(.*)`, mark))
 	match := re.FindStringSubmatch(content)

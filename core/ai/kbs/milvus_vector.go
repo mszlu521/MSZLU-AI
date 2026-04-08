@@ -189,7 +189,7 @@ func NewMilvusVectorStore(
 }
 func (s *MilvusVectorStore) Store(ctx context.Context, docs []*schema.Document) error {
 	//这里分批插入
-	const batchSize = 50
+	const batchSize = 10
 	total := len(docs)
 	if total == 0 {
 		return nil

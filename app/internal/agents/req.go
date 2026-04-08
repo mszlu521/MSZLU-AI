@@ -76,3 +76,7 @@ type createSessionRequest struct {
 type listSessionsRequest struct {
 	AgentID string `json:"agentId" form:"agentId"`
 }
+
+type AddAgentSkillReq struct {
+	SkillIDs []uuid.UUID `json:"skillIds"`
+}

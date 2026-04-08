@@ -815,11 +815,8 @@ func (s *service) saveToStores(ctx context.Context, kb *model.KnowledgeBase, par
 		logs.Errorf("new indexer error: %v", err)
 		return err
 	}
+
 	err = store.Store(ctx, docs)
-	if err != nil {
-		logs.Errorf("store documents error: %v", err)
-		return err
-	}
 	return nil
 }
 
