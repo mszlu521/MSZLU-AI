@@ -41,4 +41,5 @@ type repository interface {
 	saveAgentSkill(ctx context.Context, skill *model.AgentSkill) error
 	deleteAgentSkill(ctx context.Context, agentId uuid.UUID, skillID uuid.UUID) error
 	deleteAgentTool(ctx context.Context, agentId uuid.UUID, toolId uuid.UUID) error
+	getAgentById(ctx context.Context, id uuid.UUID) (*model.Agent, error)
 }

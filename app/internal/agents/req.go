@@ -10,6 +10,8 @@ type CreateAgentReq struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	Status      model.AgentStatus `json:"status"`
+	Mode        model.AgentMode   `json:"mode"`
+	DeepConfig  model.JSON        `json:"deepConfig"`
 }
 
 type SearchAgentReq struct {
@@ -31,6 +33,8 @@ type UpdateAgentReq struct {
 	ModelName       string            `json:"modelName"`
 	ModelParameters model.JSON        `json:"modelParameters"`
 	OpeningDialogue string            `json:"openingDialogue"`
+	Mode            model.AgentMode   `json:"mode"`
+	DeepConfig      model.JSON        `json:"deepConfig"`
 }
 type AgentMessageReq struct {
 	AgentID   uuid.UUID  `json:"agentId"`

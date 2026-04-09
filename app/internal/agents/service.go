@@ -5,6 +5,7 @@ import (
 	"common/biz"
 	"context"
 	"core/ai"
+	"core/ai/deepagent"
 	"core/ai/interview"
 	"core/ai/mcps"
 	"core/ai/store"
@@ -43,12 +44,25 @@ import (
 )
 
 type service struct {
-	repo            repository
-	stateMutex      sync.RWMutex
-	interviewStates map[string]*interview.StageState //面试状态
-	pendingAnswer   map[string]string                //待处理的答案
-	waitingStates   map[string]bool
-	checkPointStore compose.CheckPointStore
+	repo             repository
+	stateMutex       sync.RWMutex
+	interviewStates  map[string]*interview.StageState //面试状态
+	pendingAnswer    map[string]string                //待处理的答案
+	waitingStates    map[string]bool
+	checkPointStore  compose.CheckPointStore
+	deepAgentFactory *deepagent.Factory
+}
+
+func (s *service) LoadAgent(ctx context.Context, agentId uuid.UUID) (*model.Agent, error) {
+	return s.repo.getAgentById(ctx, agentId)
+}
+
+func (s *service) GetProviderConfig(ctx context.Context, provider string, modelName string) (*model.ProviderConfig, error) {
+	return s.getProviderConfig(ctx, model.LLMTypeChat, provider, modelName)
+}
+
+func (s *service) SearchKnowledgeBase(ctx context.Context, userId uuid.UUID, query string, kbId uuid.UUID) ([]*shared.SearchKnowledgeBaseResult, error) {
+	return s.searchKnowledgeBase(ctx, userId, query, kbId)
 }
 
 func (s *service) isWaitingForAnswer(sessionId string) bool {
@@ -147,6 +161,12 @@ func (s *service) createAgent(ctx context.Context, userId uuid.UUID, req CreateA
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	agent := model.DefaultAgent(userId, req.Name, req.Description, req.Status)
+	if agent.Mode == "" {
+		agent.Mode = req.Mode
+	}
+	if req.Mode == model.DeepAgentMode && req.DeepConfig != nil {
+		agent.DeepConfig = req.DeepConfig
+	}
 	err := s.repo.createAgent(ctx, agent)
 	if err != nil {
 		logs.Errorf("创建智能代理失败: %v", err)
@@ -226,6 +246,12 @@ func (s *service) updateAgent(ctx context.Context, userId uuid.UUID, req UpdateA
 	if req.OpeningDialogue != "" {
 		agent.OpeningDialogue = req.OpeningDialogue
 	}
+	if req.Mode != "" {
+		agent.Mode = req.Mode
+	}
+	if req.DeepConfig != nil {
+		agent.DeepConfig = req.DeepConfig
+	}
 	err = s.repo.updateAgent(ctx, agent)
 	if err != nil {
 		logs.Errorf("更新智能代理失败: %v", err)
@@ -259,11 +285,16 @@ func (s *service) agentMessage(ctx context.Context, userID uuid.UUID, req AgentM
 			s.sendError(ctx, errChan, err)
 			return
 		}
-		if agent.Name == "AI面试" {
-			s.handlerInterviewProcess(ctx, userID, req, agent, dataChan, errChan)
-			return
+		switch agent.Mode {
+		case model.DeepAgentMode:
+			s.handleDeepAgent(ctx, userID, req, agent, dataChan, errChan)
+		case model.GeneralAgentMode:
+			if agent.Name == "AI面试" {
+				s.handlerInterviewProcess(ctx, userID, req, agent, dataChan, errChan)
+				return
+			}
+			s.handleNormalAgent(ctx, userID, req, agent, dataChan, errChan)
 		}
-		s.handleNormalAgent(ctx, userID, req, agent, dataChan, errChan)
 	}()
 	return dataChan, errChan
 }
@@ -1514,12 +1545,243 @@ func (s *service) deleteAgentTool(ctx context.Context, userID uuid.UUID, agentId
 	return nil
 }
 
+func (s *service) handleDeepAgent(ctx context.Context, userID uuid.UUID, req AgentMessageReq, agent *model.Agent, dataChan chan string, errChan chan error) {
+	s.handleAgentMessage(ctx, userID, req, agent, dataChan, errChan, func(ctx context.Context, session *model.ChatSession, dataChan chan string, errChan chan error) error {
+		factory := s.deepAgentFactory
+		deepAgent, err := factory.Create(ctx, &deepagent.UniversalDeepAgentConfig{
+			Name:           agent.Name,
+			Description:    agent.Description,
+			SubAgentLoader: s,
+			Agent:          agent,
+			SystemPrompt:   agent.SystemPrompt,
+		})
+		if err != nil {
+			logs.Errorf("创建深度代理失败：%v", err)
+			return fmt.Errorf("创建深度代理失败")
+		}
+		eventChan, err := deepAgent.ChatStream(ctx, req.Message)
+		if err != nil {
+			logs.Errorf("深度代理聊天失败：%v", err)
+			return fmt.Errorf("深度代理聊天失败")
+		}
+		subAgentName := make(map[string]string)
+		for eve := range eventChan {
+			if eve.Err != nil {
+				logs.Errorf("深度代理聊天失败：%v", eve.Err)
+				s.sendData(ctx, dataChan, ai.BuildErrMessage(agent.Name, eve.Err.Error()))
+				continue
+			}
+			if eve.Output != nil {
+				if eve.Output.MessageOutput != nil {
+					msg, err := eve.Output.MessageOutput.GetMessage()
+					if err == nil && msg != nil {
+						if msg.Role == schema.Tool {
+							toolName, ok := subAgentName[msg.ToolCallID]
+							if !ok {
+								toolName = msg.ToolName
+							}
+							responseMsg := ai.BuildMessage(agent.Name, toolName, msg.Content)
+							s.sendData(ctx, dataChan, responseMsg)
+							if msg.Content != "" {
+								go s.saveChatMessage(session.ID, responseMsg, schema.Assistant)
+							}
+						} else if len(msg.ToolCalls) > 0 {
+							for _, tc := range msg.ToolCalls {
+								name := tc.Function.Name
+								if name == "task" {
+									//有子agent执行
+									args := tc.Function.Arguments
+									if args != "" {
+										var subAgent deepagent.SubAgent
+										err = json.Unmarshal([]byte(args), &subAgent)
+										if err != nil {
+											logs.Errorf("解析子代理参数失败：%v", err)
+											continue
+										}
+										if subAgent.SubagentType != "" {
+											tn := "子Agent- " + subAgent.SubagentType
+											subAgentName[tc.ID] = tn
+										}
+									}
+								}
+							}
+							s.handleDeepAgentMessage(ctx, agent, msg, dataChan)
+							if msg.Content != "" {
+								toolCallMsg := ai.BuildMessage(agent.Name, msg.ToolName, msg.Content)
+								go s.saveChatMessage(session.ID, toolCallMsg, schema.Assistant)
+							}
+						} else if msg.Content != "" {
+							normalMsg := ai.BuildMessage(agent.Name, msg.ToolName, msg.Content)
+							s.sendData(ctx, dataChan, normalMsg)
+							if msg.Content != "" {
+								go s.saveChatMessage(session.ID, normalMsg, schema.Assistant)
+							}
+						}
+					}
+					if eve.Output.CustomizedOutput != nil {
+						//如果有自定义的输出在这里处理
+					}
+				}
+				//处理Action事件
+				if eve.Action != nil {
+					if eve.Action.TransferToAgent != nil {
+						transferContent := fmt.Sprintf("正在将任务转交给%s",
+							eve.Action.TransferToAgent.DestAgentName)
+						transferMsg := ai.BuildMessage(agent.Name, "transfer_to_agent", transferContent)
+						s.sendData(ctx, dataChan, transferMsg)
+						go s.saveChatMessage(session.ID, transferMsg, schema.Assistant)
+					}
+					if eve.Action.Interrupted != nil {
+						//中断事件
+						if len(eve.Action.Interrupted.InterruptContexts) > 0 {
+							for _, interruptCtx := range eve.Action.Interrupted.InterruptContexts {
+								if interruptCtx.Info != nil {
+									info := interruptCtx.Info.(map[string]any)
+									if question, ok := info["question"].(string); ok {
+										msg := ai.BuildMessage(agent.Name, "interrupt", question)
+										s.sendData(ctx, dataChan, msg)
+										break
+									}
+								}
+							}
+						}
+						return nil
+					}
+					if eve.Action.Exit {
+						//退出事件
+						exitMsg := ai.BuildMessage(agent.Name, "exit", "任务执行完成")
+						s.sendData(ctx, dataChan, exitMsg)
+						go s.saveChatMessage(session.ID, exitMsg, schema.Assistant)
+					}
+				}
+				//推理内容
+				if eve.Output != nil && eve.Output.MessageOutput != nil {
+					msg, err := eve.Output.MessageOutput.GetMessage()
+					if err == nil && msg != nil && msg.ReasoningContent != "" {
+						reasonMsg := ai.BuildMessage(agent.Name, msg.ToolName, msg.ReasoningContent)
+						s.sendData(ctx, dataChan, reasonMsg)
+					}
+				}
+			}
+		}
+		return nil
+	})
+}
+
+type agentExecutionHandler func(ctx context.Context, session *model.ChatSession, dataChan chan string, errChan chan error) error
+
+func (s *service) handleAgentMessage(
+	ctx context.Context,
+	userID uuid.UUID,
+	req AgentMessageReq,
+	agent *model.Agent,
+	dataChan chan string,
+	errChan chan error,
+	executor agentExecutionHandler) {
+	var session *model.ChatSession
+	var err error
+	if req.SessionId != nil {
+		//使用现有会话
+		session, err = s.repo.getSession(ctx, req.SessionId)
+		if err != nil {
+			logs.Errorf("查询会话失败: %v", err)
+			s.sendError(ctx, errChan, err)
+			return
+		}
+	} else {
+		//创建新会话
+		session = &model.ChatSession{
+			BaseModel: model.BaseModel{
+				ID: uuid.New(),
+			},
+			AgentID: agent.ID,
+			UserID:  userID,
+			Title:   req.Message,
+		}
+		err = s.repo.createSession(ctx, session)
+		if err != nil {
+			logs.Errorf("创建会话失败: %v", err)
+		} else {
+			//通知前端新建了会话，这样前端就会将sessionId携带
+			sessionInfo, _ := json.Marshal(map[string]any{
+				"action":    "session_created",
+				"sessionId": session.ID,
+				"title":     session.Title,
+			})
+			s.sendData(ctx, dataChan, string(sessionInfo))
+		}
+	}
+	//加载历史消息
+	var history []*schema.Message
+	messages, err := s.repo.getSessionMessages(ctx, session.ID)
+	if err != nil {
+		logs.Errorf("查询会话历史消息失败: %v", err)
+	} else {
+		for _, v := range messages {
+			switch v.Role {
+			case string(schema.User):
+				history = append(history, schema.UserMessage(v.Content))
+			case string(schema.Assistant):
+				history = append(history, schema.AssistantMessage(v.Content, nil))
+			case string(schema.System):
+				history = append(history, schema.SystemMessage(v.Content))
+			}
+		}
+	}
+	//存储消息
+	go s.saveChatMessage(session.ID, req.Message, schema.User)
+	err = executor(ctx, session, dataChan, errChan)
+	if err != nil {
+		logs.Errorf("执行任务失败: %v", err)
+		s.sendError(ctx, errChan, err)
+		return
+	}
+}
+
+func (s *service) createNewSession(
+	ctx context.Context,
+	req AgentMessageReq,
+	userID uuid.UUID,
+	agent *model.Agent,
+	dataChan chan string,
+	errChan chan error) (*model.ChatSession, error) {
+	session := &model.ChatSession{
+		BaseModel: model.BaseModel{
+			ID: uuid.New(),
+		},
+		AgentID: agent.ID,
+		UserID:  userID,
+		Title:   req.Message,
+	}
+	err := s.repo.createSession(ctx, session)
+	if err != nil {
+		logs.Errorf("创建会话失败: %v", err)
+	} else {
+		//通知前端新建了会话，这样前端就会将sessionId携带
+		sessionInfo, _ := json.Marshal(map[string]any{
+			"action":    "session_created",
+			"sessionId": session.ID,
+			"title":     session.Title,
+		})
+		s.sendData(ctx, dataChan, string(sessionInfo))
+	}
+	return session, err
+}
+
+func (s *service) handleDeepAgentMessage(ctx context.Context, agent *model.Agent, msg adk.Message, dataChan chan string) {
+	if msg.Content == "" {
+		return
+	}
+	s.sendData(ctx, dataChan, ai.BuildMessage(agent.Name, msg.ToolName, msg.Content))
+}
 func newService() *service {
+	factory := deepagent.NewFactory()
 	return &service{
-		repo:            newModels(database.GetPostgresDB().GormDB),
-		checkPointStore: store.NewInMemoryStore(),
-		pendingAnswer:   make(map[string]string),
-		waitingStates:   make(map[string]bool),
-		interviewStates: make(map[string]*interview.StageState),
+		repo:             newModels(database.GetPostgresDB().GormDB),
+		checkPointStore:  store.NewInMemoryStore(),
+		pendingAnswer:    make(map[string]string),
+		waitingStates:    make(map[string]bool),
+		interviewStates:  make(map[string]*interview.StageState),
+		deepAgentFactory: factory,
 	}
 }

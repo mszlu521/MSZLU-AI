@@ -61,7 +61,47 @@ type Agent struct {
 	Agents         []*AgentMarket   `json:"agentMarkets" gorm:"many2many:agent_agents"`
 	Workflows      []*Workflow      `json:"workflows" gorm:"many2many:agent_workflows"`
 	Skills         []*Skill         `json:"skills" gorm:"many2many:agent_skills"`
+
+	// Mode Agent运行模式：general(通用对话), supervisor(监督者模式), deep(深度编排模式)
+	Mode AgentMode `json:"mode" gorm:"column:agent_mode;type:varchar(50);not null;default:'general'"`
+	// DeepConfig DeepAgent专属配置，JSON格式存储
+	DeepConfig JSON `json:"deepConfig" gorm:"column:deep_config;type:jsonb"`
 }
+
+type AgentMode string
+
+type DeepAgentConfig struct {
+	MaxIterations int         `json:"max_iterations"`
+	EnableTodos   bool        `json:"enable_todos"`
+	SubAgentIDs   []uuid.UUID `json:"sub_agent_ids"`
+}
+
+func (j JSON) ToDeepAgentConfig() *DeepAgentConfig {
+	config := &DeepAgentConfig{
+		EnableTodos:   true,
+		MaxIterations: 10,
+	}
+	if maxIter, ok := j["max_iterations"].(float64); ok {
+		config.MaxIterations = int(maxIter)
+	}
+	if todos, ok := j["enable_todos"].(bool); ok {
+		config.EnableTodos = todos
+	}
+	if subAgentIDs, ok := j["sub_agent_ids"].([]any); ok {
+		for _, id := range subAgentIDs {
+			if agentId, err := uuid.Parse(id.(string)); err == nil {
+				config.SubAgentIDs = append(config.SubAgentIDs, agentId)
+			}
+		}
+	}
+	return config
+}
+
+const (
+	GeneralAgentMode AgentMode = "general"
+	SupervisorMode   AgentMode = "supervisor"
+	DeepAgentMode    AgentMode = "deep"
+)
 
 // TableName 返回表名
 func (Agent) TableName() string {

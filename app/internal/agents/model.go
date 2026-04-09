@@ -13,6 +13,15 @@ type models struct {
 	db *gorm.DB
 }
 
+func (m *models) getAgentById(ctx context.Context, id uuid.UUID) (*model.Agent, error) {
+	var agent model.Agent
+	err := m.db.WithContext(ctx).Where("id = ?", id).First(&agent).Error
+	if gorms.IsRecordNotFoundError(err) {
+		return nil, nil
+	}
+	return &agent, err
+}
+
 func (m *models) deleteAgentTool(ctx context.Context, agentId uuid.UUID, toolId uuid.UUID) error {
 	return m.db.WithContext(ctx).Where("agent_id = ? and tool_id = ?", agentId, toolId).Delete(&model.AgentTool{}).Error
 }
